@@ -1,52 +1,51 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import math
-import copy
+import tensorflow as tf
 from copy import deepcopy
 
 
 ########################################################################################
 
 
-class SELayer(nn.Module):
+class SELayer(tf.keras.layers.Layer):
     def __init__(self, channel, reduction=16):
         super(SELayer, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool1d(1)
-        self.fc = nn.Sequential(
-            nn.Linear(channel, channel // reduction, bias=False),
-            nn.ReLU(inplace=True),
-            nn.Linear(channel // reduction, channel, bias=False),
-            nn.Sigmoid()
-        )
+        self.avg_pool = tf.keras.layers.GlobalAveragePooling1D()
+        self.fc = tf.keras.Sequential([
+            tf.keras.layers.Dense(channel // reduction, use_bias=False),
+            tf.keras.layers.ReLU(),
+            tf.keras.layers.Dense(channel, use_bias=False),
+            tf.keras.layers.Activation('sigmoid')
+        ])
 
-    def forward(self, x):
-        b, c, _ = x.size()
-        y = self.avg_pool(x).view(b, c)
-        y = self.fc(y).view(b, c, 1)
-        return x * y.expand_as(x)
+    def call(self, inputs):
+        shape = inputs.shape
+        y = self.avg_pool(inputs)
+        y = tf.reshape(y, [-1, shape[1]])
+        y = self.fc(y)
+        y = tf.reshape(y, [-1, shape[1], 1])
+        return tf.multiply(inputs, y)
 
 
-class SEBasicBlock(nn.Module):
+class SEBasicBlock(tf.keras.layers.Layer):
     expansion = 1
 
     def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
                  base_width=64, dilation=1, norm_layer=None,
                  *, reduction=16):
         super(SEBasicBlock, self).__init__()
-        self.conv1 = nn.Conv1d(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm1d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv1d(planes, planes, 1)
-        self.bn2 = nn.BatchNorm1d(planes)
+
+        self.conv1 = tf.keras.layers.Conv1D(planes, stride)
+        self.bn1 = tf.keras.layers.BatchNormalization(planes)
+        self.relu = tf.keras.layers.ReLU()
+        self.conv2 = tf.keras.layers.Conv1D(planes, 1)
+        self.bn2 = tf.keras.layers.BatchNormalization()
         self.se = SELayer(planes, reduction)
         self.downsample = downsample
         self.stride = stride
-        
 
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
+    def call(self, inputs):
+        residual = inputs
+
+        out = self.conv1(inputs)
         out = self.bn1(out)
         out = self.relu(out)
 
@@ -55,75 +54,74 @@ class SEBasicBlock(nn.Module):
         out = self.se(out)
 
         if self.downsample is not None:
-            residual = self.downsample(x)
+            residual = self.downsample(inputs)
 
         out += residual
         out = self.relu(out)
 
         return out
 
-class GELU(nn.Module):
-    # for older versions of PyTorch.  For new versions you can use nn.GELU() instead.
+class GELU(tf.keras.layers.Layer):
     def __init__(self):
         super(GELU, self).__init__()
-        
-    def forward(self, x):
-        x = torch.nn.functional.gelu(x)
+
+    def call(self, x):
+        x = tf.keras.activations.gelu(x)
         return x
         
         
-class MRCNN(nn.Module):
+class MRCNN(tf.keras.Model):
     def __init__(self, afr_reduced_cnn_size):
         super(MRCNN, self).__init__()
         drate = 0.5
-        self.GELU = GELU()  # for older versions of PyTorch.  For new versions use nn.GELU() instead.
-        self.features1 = nn.Sequential(
-            nn.Conv1d(1, 64, kernel_size=50, stride=6, bias=False, padding=24),
-            nn.BatchNorm1d(64),
+        self.GELU = tf.keras.layers.Activation('gelu')
+        self.features1 = tf.keras.Sequential([
+            tf.keras.layers.Conv1D(64, kernel_size=50, strides=6, use_bias=False, padding='valid'),
+            tf.keras.layers.BatchNormalization(),
             self.GELU,
-            nn.MaxPool1d(kernel_size=8, stride=2, padding=4),
-            nn.Dropout(drate),
+            tf.keras.layers.MaxPool1D(pool_size=8, strides=2, padding='same'),
+            tf.keras.layers.Dropout(drate),
 
-            nn.Conv1d(64, 128, kernel_size=8, stride=1, bias=False, padding=4),
-            nn.BatchNorm1d(128),
-            self.GELU,
-
-            nn.Conv1d(128, 128, kernel_size=8, stride=1, bias=False, padding=4),
-            nn.BatchNorm1d(128),
+            tf.keras.layers.Conv1D(128, kernel_size=8, strides=1, use_bias=False, padding='same'),
+            tf.keras.layers.BatchNormalization(),
             self.GELU,
 
-            nn.MaxPool1d(kernel_size=4, stride=4, padding=2)
-        )
-
-        self.features2 = nn.Sequential(
-            nn.Conv1d(1, 64, kernel_size=400, stride=50, bias=False, padding=200),
-            nn.BatchNorm1d(64),
-            self.GELU,
-            nn.MaxPool1d(kernel_size=4, stride=2, padding=2),
-            nn.Dropout(drate),
-
-            nn.Conv1d(64, 128, kernel_size=7, stride=1, bias=False, padding=3),
-            nn.BatchNorm1d(128),
+            tf.keras.layers.Conv1D(128, kernel_size=8, strides=1, use_bias=False, padding='same'),
+            tf.keras.layers.BatchNormalization(),
             self.GELU,
 
-            nn.Conv1d(128, 128, kernel_size=7, stride=1, bias=False, padding=3),
-            nn.BatchNorm1d(128),
+            tf.keras.layers.MaxPool1D(pool_size=4, strides=4, padding='same')
+        ])
+
+        self.features2 = tf.keras.Sequential([
+            tf.keras.layers.Conv1D(64, kernel_size=400, strides=50, use_bias=False, padding='valid'),
+            tf.keras.layers.BatchNormalization(),
+            self.GELU,
+            tf.keras.layers.MaxPool1D(pool_size=4, strides=2, padding='same'),
+            tf.keras.layers.Dropout(drate),
+
+            tf.keras.layers.Conv1D(128, kernel_size=7, strides=1, use_bias=False, padding='same'),
+            tf.keras.layers.BatchNormalization(),
             self.GELU,
 
-            nn.MaxPool1d(kernel_size=2, stride=2, padding=1)
-        )
-        self.dropout = nn.Dropout(drate)
+            tf.keras.layers.Conv1D(128, kernel_size=7, strides=1, use_bias=False, padding='same'),
+            tf.keras.layers.BatchNormalization(),
+            self.GELU,
+
+            tf.keras.layers.MaxPool1D(pool_size=2, strides=2, padding='same')
+        ])
+        self.dropout = tf.keras.layers.Dropout(drate)
         self.inplanes = 128
         self.AFR = self._make_layer(SEBasicBlock, afr_reduced_cnn_size, 1)
+
 
     def _make_layer(self, block, planes, blocks, stride=1):  # makes residual SE block
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(
-                nn.Conv1d(self.inplanes, planes * block.expansion,
-                          kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm1d(planes * block.expansion),
-            )
+            downsample = tf.keras.Sequential([
+                tf.keras.layers.Conv1D(planes * block.expansion, kernel_size=1, strides=stride, use_bias=False),
+                tf.keras.layers.BatchNormalization(),
+            ])
 
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
@@ -131,12 +129,12 @@ class MRCNN(nn.Module):
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes))
 
-        return nn.Sequential(*layers)
+        return tf.keras.Sequential(layers)
 
-    def forward(self, x):
+    def call(self, x):
         x1 = self.features1(x)
         x2 = self.features2(x)
-        x_concat = torch.cat((x1, x2), dim=2)
+        x_concat = tf.concat([x1, x2], axis=2)
         x_concat = self.dropout(x_concat)
         x_concat = self.AFR(x_concat)
         return x_concat
@@ -146,86 +144,77 @@ class MRCNN(nn.Module):
 
 def attention(query, key, value, dropout=None):
     "Implementation of Scaled dot product attention"
-    d_k = query.size(-1)
-    scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
+    d_k = query.shape[-1]
+    scores = tf.matmul(query, key, transpose_b=True) / tf.math.sqrt(d_k)
 
-    p_attn = F.softmax(scores, dim=-1)
+    p_attn = tf.nn.softmax(scores, axis=-1)
     if dropout is not None:
         p_attn = dropout(p_attn)
-    return torch.matmul(p_attn, value), p_attn
+    return tf.matmul(p_attn, value), p_attn
 
 
-class CausalConv1d(torch.nn.Conv1d):
+class CausalConv1d(tf.keras.layers.Conv1D):
     def __init__(self,
-                 in_channels,
-                 out_channels,
+                 filters,
                  kernel_size,
-                 stride=1,
-                 dilation=1,
-                 groups=1,
-                 bias=True):
-        self.__padding = (kernel_size - 1) * dilation
-
+                 dilation_rate=1,
+                 **kwargs):
+        self.__padding = (kernel_size - 1) * dilation_rate
         super(CausalConv1d, self).__init__(
-            in_channels,
-            out_channels,
+            filters=filters,
             kernel_size=kernel_size,
-            stride=stride,
-            padding=self.__padding,
-            dilation=dilation,
-            groups=groups,
-            bias=bias)
+            strides=1,
+            padding='valid',
+            dilation_rate=dilation_rate,
+            **kwargs)
 
-    def forward(self, input):
-        result = super(CausalConv1d, self).forward(input)
+    def call(self, inputs):
+        result = super(CausalConv1d, self).call(inputs)
         if self.__padding != 0:
-            return result[:, :, :-self.__padding]
+            return result[:, :-self.__padding, :]
         return result
 
-class MultiHeadedAttention(nn.Module):
+class MultiHeadedAttention(tf.keras.layers.Layer):
     def __init__(self, h, d_model, afr_reduced_cnn_size, dropout=0.1):
-        "Take in model size and number of heads."
         super(MultiHeadedAttention, self).__init__()
         assert d_model % h == 0
         self.d_k = d_model // h
         self.h = h
+        
+        self.convs = [CausalConv1d(afr_reduced_cnn_size, afr_reduced_cnn_size, kernel_size=7, stride=1) for _ in range(3)]
+        self.linear = tf.keras.layers.Dense(d_model)
+        self.dropout = tf.keras.layers.Dropout(dropout)
 
-        self.convs = clones(CausalConv1d(afr_reduced_cnn_size, afr_reduced_cnn_size, kernel_size=7, stride=1), 3)
-        self.linear = nn.Linear(d_model, d_model)
-        self.dropout = nn.Dropout(p=dropout)
+    def call(self, query, key, value):
+        nbatches = tf.shape(query)[0]
 
-    def forward(self, query, key, value):
-        "Implements Multi-head attention"
-        nbatches = query.size(0)
-
-        query = query.view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-        key   = self.convs[1](key).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-        value = self.convs[2](value).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
+        query = tf.transpose(tf.reshape(query, [nbatches, -1, self.h, self.d_k]), [0, 2, 1, 3])
+        key = tf.transpose(tf.reshape(self.convs[1](key), [nbatches, -1, self.h, self.d_k]), [0, 2, 1, 3])
+        value = tf.transpose(tf.reshape(self.convs[2](value), [nbatches, -1, self.h, self.d_k]), [0, 2, 1, 3])
 
         x, self.attn = attention(query, key, value, dropout=self.dropout)
 
-        x = x.transpose(1, 2).contiguous() \
-            .view(nbatches, -1, self.h * self.d_k)
+        x = tf.reshape(tf.transpose(x, [0, 2, 1, 3]), [nbatches, -1, self.h * self.d_k])
 
         return self.linear(x)
 
 
-class LayerNorm(nn.Module):
+class LayerNorm(tf.keras.layers.Layer):
     "Construct a layer normalization module."
 
     def __init__(self, features, eps=1e-6):
         super(LayerNorm, self).__init__()
-        self.a_2 = nn.Parameter(torch.ones(features))
-        self.b_2 = nn.Parameter(torch.zeros(features))
+        self.a_2 = tf.Variable(tf.ones([features]), trainable=True)
+        self.b_2 = tf.Variable(tf.zeros([features]), trainable=True)
         self.eps = eps
 
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
+    def call(self, x):
+        mean = tf.math.reduce_mean(x, axis=-1, keepdims=True)
+        std = tf.math.reduce_std(x, axis=-1, keepdims=True)
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
 
 
-class SublayerOutput(nn.Module):
+class SublayerOutput(tf.keras.layers.Layer):
     '''
     A residual connection followed by a layer norm.
     '''
@@ -233,37 +222,34 @@ class SublayerOutput(nn.Module):
     def __init__(self, size, dropout):
         super(SublayerOutput, self).__init__()
         self.norm = LayerNorm(size)
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = tf.keras.layers.Dropout(dropout)
 
-    def forward(self, x, sublayer):
+    def call(self, x, sublayer, *args, **kwargs):
         "Apply residual connection to any sublayer with the same size."
-        return x + self.dropout(sublayer(self.norm(x)))
+        return x + self.dropout(sublayer(self.norm(x)), *args, **kwargs)
 
 
-def clones(module, N):
-    "Produce N identical layers."
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+def clones(layer, N):
+    return [deepcopy(layer) for _ in range(N)]
 
 
-class TCE(nn.Module):
-    '''
+class TCE(tf.keras.layers.Layer):
+    """
     Transformer Encoder
-
     It is a stack of N layers.
-    '''
+    """
 
     def __init__(self, layer, N):
         super(TCE, self).__init__()
         self.layers = clones(layer, N)
         self.norm = LayerNorm(layer.size)
 
-    def forward(self, x):
+    def call(self, x):
         for layer in self.layers:
             x = layer(x)
         return self.norm(x)
 
-
-class EncoderLayer(nn.Module):
+class EncoderLayer(tf.keras.layers.Layer):
     '''
     An encoder layer
 
@@ -274,34 +260,30 @@ class EncoderLayer(nn.Module):
         super(EncoderLayer, self).__init__()
         self.self_attn = self_attn
         self.feed_forward = feed_forward
-        self.sublayer_output = clones(SublayerOutput(size, dropout), 2)
+        self.sublayer_output = [SublayerOutput(size, dropout) for _ in range(2)]
         self.size = size
-        self.conv = CausalConv1d(afr_reduced_cnn_size, afr_reduced_cnn_size, kernel_size=7, stride=1, dilation=1)
+        self.conv = tf.keras.layers.Conv1D(afr_reduced_cnn_size, kernel_size=7, strides=1, dilation_rate=1)
 
-
-    def forward(self, x_in):
+    def call(self, x_in, training=False):
         "Transformer Encoder"
         query = self.conv(x_in)
-        x = self.sublayer_output[0](query, lambda x: self.self_attn(query, x_in, x_in))  # Encoder self-attention
-        return self.sublayer_output[1](x, self.feed_forward)
+        x = self.sublayer_output[0](query, lambda x: self.self_attn(query, x_in, x_in), training=training)  # Encoder self-attention
+        return self.sublayer_output[1](x, self.feed_forward, training=training)
 
 
-class PositionwiseFeedForward(nn.Module):
-    "Positionwise feed-forward network."
-
+class PositionwiseFeedForward(tf.keras.layers.Layer):
     def __init__(self, d_model, d_ff, dropout=0.1):
         super(PositionwiseFeedForward, self).__init__()
-        self.w_1 = nn.Linear(d_model, d_ff)
-        self.w_2 = nn.Linear(d_ff, d_model)
-        self.dropout = nn.Dropout(dropout)
+        self.w_1 = tf.keras.layers.Dense(d_ff, activation='relu')
+        self.w_2 = tf.keras.layers.Dense(d_model)
+        self.dropout = tf.keras.layers.Dropout(dropout)
 
-    def forward(self, x):
+    def call(self, x):
         "Implements FFN equation."
-        return self.w_2(self.dropout(F.relu(self.w_1(x))))
+        return self.w_2(self.dropout(self.w_1(x)))
 
 
-
-class AttnSleep(nn.Module):
+class AttnSleep(tf.keras.Model):
     def __init__(self):
         super(AttnSleep, self).__init__()
 
@@ -319,69 +301,70 @@ class AttnSleep(nn.Module):
         ff = PositionwiseFeedForward(d_model, d_ff, dropout)
         self.tce = TCE(EncoderLayer(d_model, deepcopy(attn), deepcopy(ff), afr_reduced_cnn_size, dropout), N)
 
-        self.fc = nn.Linear(d_model * afr_reduced_cnn_size, num_classes)
+        self.fc = tf.keras.layers.Dense(num_classes, activation='softmax')
 
-    def forward(self, x):
+    def call(self, x):
         x_feat = self.mrcnn(x)
         encoded_features = self.tce(x_feat)
-        encoded_features = encoded_features.contiguous().view(encoded_features.shape[0], -1)
+        encoded_features = tf.reshape(encoded_features, (encoded_features.shape[0], -1))
         final_output = self.fc(encoded_features)
         return final_output
 
 ######################################################################
 
-class MRCNN_SHHS(nn.Module):
+class MRCNN_SHHS(tf.keras.Model):
     def __init__(self, afr_reduced_cnn_size):
         super(MRCNN_SHHS, self).__init__()
         drate = 0.5
-        self.GELU = GELU()  # for older versions of PyTorch.  For new versions use nn.GELU() instead.
-        self.features1 = nn.Sequential(
-            nn.Conv1d(1, 64, kernel_size=50, stride=6, bias=False, padding=24),
-            nn.BatchNorm1d(64),
+        self.GELU = tf.keras.layers.Activation(tf.nn.gelu)
+        self.features1 = tf.keras.Sequential([
+            tf.keras.layers.Conv1D(64, kernel_size=50, strides=6, use_bias=False, padding='same'),
+            tf.keras.layers.BatchNormalization(),
             self.GELU,
-            nn.MaxPool1d(kernel_size=8, stride=2, padding=4),
-            nn.Dropout(drate),
+            tf.keras.layers.MaxPooling1D(pool_size=8, strides=2, padding='same'),
+            tf.keras.layers.Dropout(drate),
 
-            nn.Conv1d(64, 128, kernel_size=8, stride=1, bias=False, padding=4),
-            nn.BatchNorm1d(128),
-            self.GELU,
-
-            nn.Conv1d(128, 128, kernel_size=8, stride=1, bias=False, padding=4),
-            nn.BatchNorm1d(128),
+            tf.keras.layers.Conv1D(128, kernel_size=8, strides=1, use_bias=False, padding='same'),
+            tf.keras.layers.BatchNormalization(),
             self.GELU,
 
-            nn.MaxPool1d(kernel_size=4, stride=4, padding=2)
-        )
-
-        self.features2 = nn.Sequential(
-            nn.Conv1d(1, 64, kernel_size=400, stride=50, bias=False, padding=200),
-            nn.BatchNorm1d(64),
-            self.GELU,
-            nn.MaxPool1d(kernel_size=4, stride=2, padding=2),
-            nn.Dropout(drate),
-
-            nn.Conv1d(64, 128, kernel_size=6, stride=1, bias=False, padding=3),
-            nn.BatchNorm1d(128),
+            tf.keras.layers.Conv1D(128, kernel_size=8, strides=1, use_bias=False, padding='same'),
+            tf.keras.layers.BatchNormalization(),
             self.GELU,
 
-            nn.Conv1d(128, 128, kernel_size=6, stride=1, bias=False, padding=3),
-            nn.BatchNorm1d(128),
+            tf.keras.layers.MaxPooling1D(pool_size=4, strides=4, padding='same')
+        ])
+
+        self.features2 = tf.keras.Sequential([
+            tf.keras.layers.Conv1D(64, kernel_size=400, strides=50, use_bias=False, padding='same'),
+            tf.keras.layers.BatchNormalization(),
+            self.GELU,
+            tf.keras.layers.MaxPooling1D(pool_size=4, strides=2, padding='same'),
+            tf.keras.layers.Dropout(drate),
+
+            tf.keras.layers.Conv1D(128, kernel_size=6, strides=1, use_bias=False, padding='same'),
+            tf.keras.layers.BatchNormalization(),
             self.GELU,
 
-            nn.MaxPool1d(kernel_size=2, stride=2, padding=1)
-        )
-        self.dropout = nn.Dropout(drate)
+            tf.keras.layers.Conv1D(128, kernel_size=6, strides=1, use_bias=False, padding='same'),
+            tf.keras.layers.BatchNormalization(),
+            self.GELU,
+
+            tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding='same')
+        ])
+
+        self.dropout = tf.keras.layers.Dropout(drate)
         self.inplanes = 128
         self.AFR = self._make_layer(SEBasicBlock, afr_reduced_cnn_size, 1)
 
     def _make_layer(self, block, planes, blocks, stride=1):  # makes residual SE block
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(
-                nn.Conv1d(self.inplanes, planes * block.expansion,
-                          kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm1d(planes * block.expansion),
-            )
+            downsample = tf.keras.Sequential([
+                tf.keras.layers.Conv1D(planes * block.expansion,
+                                       kernel_size=1, strides=stride, use_bias=False),
+                tf.keras.layers.BatchNormalization(),
+            ])
 
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
@@ -389,12 +372,12 @@ class MRCNN_SHHS(nn.Module):
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes))
 
-        return nn.Sequential(*layers)
+        return tf.keras.Sequential(layers)
 
-    def forward(self, x):
+    def call(self, x):
         x1 = self.features1(x)
         x2 = self.features2(x)
-        x_concat = torch.cat((x1, x2), dim=2)
+        x_concat = tf.concat([x1, x2], axis=2)
         x_concat = self.dropout(x_concat)
         x_concat = self.AFR(x_concat)
         return x_concat

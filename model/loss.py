@@ -1,7 +1,5 @@
-import torch
-import torch.nn as nn
-
+import tensorflow as tf
 
 def weighted_CrossEntropyLoss(output, target, classes_weights, device):
-    cr = nn.CrossEntropyLoss(weight=torch.tensor(classes_weights).to(device))
-    return cr(output, target)
+    ce = tf.CategoricalCrossentropy(from_logits=True, weight=tf.constant(classes_weights, dtype=tf.float32))
+    return ce(target, output)
