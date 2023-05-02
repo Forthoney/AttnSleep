@@ -1,8 +1,7 @@
 import numpy as np
-import torch
+import tensorflow as tf
 from base import BaseTrainer
 from utils import inf_loop, MetricTracker
-import torch.nn as nn
 
 selected_d = {"outs": [], "trg": []}
 class Trainer(BaseTrainer):
@@ -29,89 +28,106 @@ class Trainer(BaseTrainer):
         self.class_weights = class_weights
 
     def _train_epoch(self, epoch, total_epochs):
-        """
-        Training logic for an epoch
+       """
+       Training logic for an epoch
 
-        :param epoch: Integer, current training epoch.
-               total_epochs: Integer, the total number of epoch
-        :return: A log that contains average loss and metric in this epoch.
-        """
-        self.model.train()
-        self.train_metrics.reset()
-        overall_outs = []
-        overall_trgs = []
-        for batch_idx, (data, target) in enumerate(self.data_loader):
-            data, target = data.to(self.device), target.to(self.device)
 
-            self.optimizer.zero_grad()
-            output = self.model(data)
+       :param epoch: Integer, current training epoch.
+              total_epochs: Integer, the total number of epoch
+       :return: A log that contains average loss and metric in this epoch.
+       """
+       self.train_metrics.reset_states() # Reset the training metrics
+       overall_outs = []
+       overall_trgs = []
 
-            loss = self.criterion(output, target, self.class_weights, self.device)
 
-            loss.backward()
-            self.optimizer.step()
+       for batch_idx, (data, target) in enumerate(self.data_loader):
+           data, target = data.numpy(), target.numpy() # Convert tensor data to numpy arrays
+           data = tf.convert_to_tensor(data, dtype=tf.float32) # Convert numpy arrays to tensorflow tensors
+           target = tf.convert_to_tensor(target, dtype=tf.float32)
 
-            self.train_metrics.update('loss', loss.item())
-            for met in self.metric_ftns:
-                self.train_metrics.update(met.__name__, met(output, target))
 
-            if batch_idx % self.log_step == 0:
-                self.logger.debug('Train Epoch: {} {} Loss: {:.6f} '.format(
-                    epoch,
-                    self._progress(batch_idx),
-                    loss.item(),
-                ))
+           with tf.GradientTape() as tape:
+               output = self.model(data)
+               loss = self.criterion(output, target, self.class_weights, self.device)
 
-            if batch_idx == self.len_epoch:
-                break
-        log = self.train_metrics.result()
 
-        if self.do_validation:
-            val_log, outs, trgs = self._valid_epoch(epoch)
-            log.update(**{'val_' + k: v for k, v in val_log.items()})
-            if val_log["accuracy"] > self.selected:
-                self.selected = val_log["accuracy"]
-                selected_d["outs"] = outs
-                selected_d["trg"] = trgs
-            if epoch == total_epochs:
-                overall_outs.extend(selected_d["outs"])
-                overall_trgs.extend(selected_d["trg"])
+           gradients = tape.gradient(loss, self.model.trainable_variables)
+           self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
 
-            # THIS part is to reduce the learning rate after 10 epochs to 1e-4
-            if epoch == 10:
-                for g in self.lr_scheduler.param_groups:
-                    g['lr'] = 0.0001
 
-        return log, overall_outs, overall_trgs
+           self.train_metrics.update_state(loss)
+
+
+           for met in self.metric_ftns:
+               self.train_metrics.update_state(met(output, target))
+
+
+           if batch_idx % self.log_step == 0:
+               self.logger.debug('Train Epoch: {} {} Loss: {:.6f} '.format(
+                   epoch,
+                   self._progress(batch_idx),
+                   loss.numpy(),
+               ))
+
+
+           if batch_idx == self.len_epoch:
+               break
+       log = {m.name: m.result().numpy() for m in self.train_metrics.metrics}
+
+
+       if self.do_validation:
+           val_log, outs, trgs = self.valid_epoch(epoch)
+           log.update(**{'val_' + k: v for k, v in val_log.items()})
+           if val_log["accuracy"] > self.selected:
+               self.selected = val_log["accuracy"]
+               selected_d["outs"] = outs
+               selected_d["trg"] = trgs
+           if epoch == total_epochs:
+               overall_outs.extend(selected_d["outs"])
+               overall_trgs.extend(selected_d["trg"])
+
+
+           # The following part is used to reduce the learning rate after 10 epochs to 1e-4
+           if epoch == 10:
+               self.lr_scheduler.learning_rate = 0.0001
+
+
+       return log, overall_outs, overall_trgs
+
 
     def _valid_epoch(self, epoch):
-        """
-        Validate after training an epoch
-
-        :param epoch: Integer, current training epoch.
-        :return: A log that contains information about validation
-        """
-        self.model.eval()
-        self.valid_metrics.reset()
-        with torch.no_grad():
-            outs = np.array([])
-            trgs = np.array([])
-            for batch_idx, (data, target) in enumerate(self.valid_data_loader):
-                data, target = data.to(self.device), target.to(self.device)
-                output = self.model(data)
-                loss = self.criterion(output, target, self.class_weights, self.device)
-
-                self.valid_metrics.update('loss', loss.item())
-                for met in self.metric_ftns:
-                    self.valid_metrics.update(met.__name__, met(output, target))
-
-                preds_ = output.data.max(1, keepdim=True)[1].cpu()
-
-                outs = np.append(outs, preds_.cpu().numpy())
-                trgs = np.append(trgs, target.data.cpu().numpy())
+       """
+       Validate after training an epoch
 
 
-        return self.valid_metrics.result(), outs, trgs
+       :param epoch: Integer, current training epoch.
+       :return: A log that contains information about validation
+       """
+       self.model.trainable = False  # Set model to evaluation mode
+       self.valid_metrics.reset_states()  # Reset metric states
+       outs = np.array([])
+       trgs = np.array([])
+       for batch_idx, (data, target) in enumerate(self.valid_data_loader):
+           data, target = data.to(self.device), target.to(self.device)
+           output = self.model(data, training=False)
+           loss = self.criterion(output, target, self.class_weights, self.device)
+
+
+           self.valid_metrics.update('loss', loss.numpy())
+           for met in self.metric_ftns:
+               self.valid_metrics.update(met.__name__, met(output.numpy(), target.numpy()))
+
+
+           preds_ = tf.argmax(output, axis=1)
+
+
+           outs = np.append(outs, preds_.numpy())
+           trgs = np.append(trgs, target.numpy())
+
+
+       return self.valid_metrics.result(), outs, trgs
+
 
     def _progress(self, batch_idx):
         base = '[{}/{} ({:.0f}%)]'
