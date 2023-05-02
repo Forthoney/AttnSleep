@@ -155,15 +155,18 @@ def attention(query, key, value, dropout=None):
 
 class CausalConv1d(tf.keras.layers.Conv1D):
     def __init__(self,
-                 filters,
+                 in_channels,
+                 out_channels,
                  kernel_size,
+                 stride=1,
                  dilation_rate=1,
                  **kwargs):
         self.__padding = (kernel_size - 1) * dilation_rate
         super(CausalConv1d, self).__init__(
-            filters=filters,
+            in_channels,
+            out_channels,
             kernel_size=kernel_size,
-            strides=1,
+            stride=stride,
             padding='valid',
             dilation_rate=dilation_rate,
             **kwargs)

@@ -33,7 +33,6 @@ def load_folds_data(np_data_path, n_folds):
     else:
         print ("============== ERROR =================")
 
-
     files_dict = dict()
     for i in files:
         file_name = os.path.split(i)[-1] 
@@ -46,7 +45,7 @@ def load_folds_data(np_data_path, n_folds):
     for key in files_dict:
         files_pairs.append(files_dict[key])
     files_pairs = np.array(files_pairs)
-    files_pairs = files_pairs[r_permute]
+ #   files_pairs = files_pairs[r_permute]
 
     train_files = np.array_split(files_pairs, n_folds)
     folds_data = {}

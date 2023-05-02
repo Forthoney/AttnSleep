@@ -10,26 +10,22 @@ from parse_config import ConfigParser
 from trainer import Trainer
 from utils.util import *
 
-import torch
-import torch.nn as nn
+import tensorflow as tf
 
 # fix random seeds for reproducibility
 SEED = 123
-torch.manual_seed(SEED)
-torch.backends.cudnn.deterministic = False
-torch.backends.cudnn.benchmark = False
+tf.random.set_seed(SEED)
 np.random.seed(SEED)
 
 
 def weights_init_normal(m):
-    if type(m) == nn.Conv2d:
-        torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
-    elif type(m) == nn.Conv1d:
-        torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
-    elif type(m) == nn.BatchNorm1d:
-        torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
-        torch.nn.init.constant_(m.bias.data, 0.0)
-
+    if isinstance(m, tf.keras.layers.Conv2D):
+        tf.keras.initializers.RandomNormal(mean=0.0, stddev=0.02)(m.weights)
+    elif isinstance(m, tf.keras.layers.Conv1D):
+        tf.keras.initializers.RandomNormal(mean=0.0, stddev=0.02)(m.weights)
+    elif isinstance(m, tf.keras.layers.BatchNormalization):
+        tf.keras.initializers.RandomNormal(mean=1.0, stddev=0.02)(m.gamma)
+        tf.keras.initializers.Constant(value=0.0)(m.beta)
 
 def main(config, fold_id):
     batch_size = config["data_loader"]["args"]["batch_size"]
@@ -48,7 +44,7 @@ def main(config, fold_id):
     # build optimizer
     trainable_params = filter(lambda p: p.requires_grad, model.parameters())
 
-    optimizer = config.init_obj('optimizer', torch.optim, trainable_params)
+    optimizer = config.init_obj('optimizer', tf.optimizers, trainable_params)
 
     data_loader, valid_data_loader, data_count = data_generator_np(folds_data[fold_id][0],
                                                                    folds_data[fold_id][1], batch_size)
@@ -65,7 +61,7 @@ def main(config, fold_id):
 
 
 if __name__ == '__main__':
-    args = argparse.ArgumentParser(description='PyTorch Template')
+    args = argparse.ArgumentParser(description='Tensorflow Template')
     args.add_argument('-c', '--config', default="config.json", type=str,
                       help='config file path (default: None)')
     args.add_argument('-r', '--resume', default=None, type=str,
