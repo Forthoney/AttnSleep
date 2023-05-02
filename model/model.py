@@ -163,13 +163,13 @@ class CausalConv1d(tf.keras.layers.Conv1D):
                  **kwargs):
         self.__padding = (kernel_size - 1) * dilation_rate
         super(CausalConv1d, self).__init__(
-            in_channels,
-            out_channels,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding='valid',
-            dilation_rate=dilation_rate,
-            **kwargs)
+           filters = out_channels,
+           kernel_size=kernel_size,
+           strides=stride,
+           padding='valid',
+           dilation_rate=dilation_rate,
+           **kwargs)
+
 
     def call(self, inputs):
         result = super(CausalConv1d, self).call(inputs)
