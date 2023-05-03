@@ -1,5 +1,6 @@
-import tensorflow as tf
 import numpy as np
+import tensorflow as tf
+
 
 def load_Xy_from_numpy(np_dataset):
     # load files
@@ -11,12 +12,14 @@ def load_Xy_from_numpy(np_dataset):
         y = np.append(y, np.load(np_file)["y"])
     return X, y
 
+
 def make_dataset(data, batch_size):
     dataset = tf.data.Dataset.from_tensor_slices(data)
     dataset = dataset.batch(batch_size, drop_remainder=False)
-    dataset = dataset.shuffle(reshuffle_each_iteration=True)
+    dataset = dataset.shuffle(len(dataset), reshuffle_each_iteration=True)
 
     return dataset
+
 
 def data_generator_np(training_files, subject_files, batch_size):
     X_train, y_train = load_Xy_from_numpy(training_files)
