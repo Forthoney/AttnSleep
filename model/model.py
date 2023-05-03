@@ -3,7 +3,8 @@ from copy import deepcopy
 import tensorflow as tf
 
 ########################################################################################
-
+def clones(layer, N):
+    return [deepcopy(layer) for _ in range(N)]
 
 class SELayer(tf.keras.layers.Layer):
     def __init__(self, channel, reduction=16):
@@ -19,16 +20,11 @@ class SELayer(tf.keras.layers.Layer):
         )
 
     def call(self, inputs):
-        # b, c, d = inputs.shape
-        # y = self.avg_pool(inputs)
-        # y = tf.reshape(y, [b, c])
-        # y = self.fc(y)
-        # y = tf.reshape(y, [b, c, 1])
-        # output = tf.multiply(inputs, tf.broadcast_to(y, [b, c, d]))
-
+        # Input shape (batch_size, 78, 30)
         y = self.avg_pool(inputs)
         y = self.fc(y)
-        output = tf.multiply(inputs, y)
+        y = tf.expand_dims(y, 1)
+        output = tf.multiply(inputs, tf.broadcast_to(y, tf.shape(inputs)))
         return output
 
 
@@ -85,7 +81,6 @@ class MRCNN(tf.keras.Model):
         drate = 0.5
         self.features1 = tf.keras.Sequential(
             [
-                tf.keras.layers.InputLayer(input_shape=(3000, 1)),
                 # Convolution 1
                 tf.keras.layers.Conv1D(
                     64, kernel_size=50, strides=6, use_bias=False, padding="same"
@@ -112,7 +107,6 @@ class MRCNN(tf.keras.Model):
 
         self.features2 = tf.keras.Sequential(
             [
-                tf.keras.layers.InputLayer(input_shape=(3000, 1)),
                 tf.keras.layers.Conv1D(
                     64, kernel_size=400, strides=50, use_bias=False, padding="same"
                 ),
@@ -161,11 +155,10 @@ class MRCNN(tf.keras.Model):
         return tf.keras.Sequential(layers)
 
     def call(self, x):
-        print(x.shape)
-        x1 = self.features1(x)
-        x2 = self.features2(x)
-        x_concat = tf.concat([x1, x2], axis=1)
-        x_concat = tf.transpose(x_concat, perm=[0, 2, 1])
+        # Input Shape: (batch_size, 3000, 1)
+        x1 = self.features1(x) # Output Shape: (128, 63, 128)
+        x2 = self.features2(x) # Output Shape: (128, 15, 128)
+        x_concat = tf.concat([x1, x2], axis=1) # Output Shape: (128, 78, 128)
         x_concat = self.dropout(x_concat)
         x_concat = self.AFR(x_concat)
         return x_concat
@@ -173,97 +166,41 @@ class MRCNN(tf.keras.Model):
 
 ##########################################################################################
 
-
-def attention(query, key, value, dropout=None):
-    "Implementation of Scaled dot product attention"
-    d_k = query.shape[-1]
-    scores = tf.matmul(query, key, transpose_b=True) / tf.math.sqrt(d_k)
-
-    p_attn = tf.nn.softmax(scores, axis=-1)
-    if dropout is not None:
-        p_attn = dropout(p_attn)
-    return tf.matmul(p_attn, value), p_attn
-
-
-class CausalConv1d(tf.keras.layers.Conv1D):
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        stride=1,
-        dilation_rate=1,
-        **kwargs
-    ):
-        self.__padding = (kernel_size - 1) * dilation_rate
-        super(CausalConv1d, self).__init__(
-            filters=out_channels,
-            kernel_size=kernel_size,
-            strides=stride,
-            padding="valid",
-            dilation_rate=dilation_rate,
-            **kwargs
-        )
-
-    def call(self, inputs):
-        result = super(CausalConv1d, self).call(inputs)
-        if self.__padding != 0:
-            return result[:, : -self.__padding, :]
-        return result
-
-
 class MultiHeadedAttention(tf.keras.layers.Layer):
-    def __init__(self, h, d_model, afr_reduced_cnn_size, dropout=0.1):
-        super(MultiHeadedAttention, self).__init__()
-        assert d_model % h == 0
-        self.d_k = d_model // h
-        self.h = h
+    def __init__(self, num_heads, model_dim, afr_reduced_cnn_size, dropout=0.1):
+        super().__init__()
+        self.num_heads = num_heads
+        self.model_dim = model_dim
+        self.afr_reduced_cnn_size = afr_reduced_cnn_size
 
-        self.convs = [
-            CausalConv1d(
-                afr_reduced_cnn_size, afr_reduced_cnn_size, kernel_size=7, stride=1
-            )
-            for _ in range(3)
-        ]
-        self.linear = tf.keras.layers.Dense(d_model)
-        self.dropout = tf.keras.layers.Dropout(dropout)
+        self.convs = [tf.keras.layers.Conv1D(filters=afr_reduced_cnn_size, kernel_size=7, strides=1, padding='causal') for _ in range(3)]
+        self.linear = tf.keras.layers.Dense(model_dim)
+
+        self.multihead_attention = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=model_dim//num_heads, dropout=dropout)
+        self.reshape2 = tf.keras.layers.Reshape((num_heads, model_dim // num_heads, -1))
 
     def call(self, query, key, value):
-        nbatches = tf.shape(query)[0]
+        # Input shape
+        # query: [batch_size, 78, 30]
+        # key: [batch_size, 78, 30]
+        # value: [batch_size, 78, 30]
+        # may not be necessary
+        query = tf.keras.layers.Reshape((-1, self.afr_reduced_cnn_size))(query) 
 
-        query = tf.transpose(
-            tf.reshape(query, [nbatches, -1, self.h, self.d_k]), [0, 2, 1, 3]
-        )
-        key = tf.transpose(
-            tf.reshape(self.convs[1](key), [nbatches, -1, self.h, self.d_k]),
-            [0, 2, 1, 3],
-        )
-        value = tf.transpose(
-            tf.reshape(self.convs[2](value), [nbatches, -1, self.h, self.d_k]),
-            [0, 2, 1, 3],
-        )
+        # query = self.convs[0](query)
+        key = self.convs[1](key)
+        value = self.convs[2](value)
 
-        x, self.attn = attention(query, key, value, dropout=self.dropout)
+        query = self.reshape2(query)
+        key = self.reshape2(key)
+        value = self.reshape2(value)
 
-        x = tf.reshape(tf.transpose(x, [0, 2, 1, 3]), [nbatches, -1, self.h * self.d_k])
+        x = self.multihead_attention(query, value, key)
+        x = tf.keras.layers.Reshape((-1, self.model_dim))(x)
+        x = self.linear(x)
 
-        return self.linear(x)
-
-
-class LayerNorm(tf.keras.layers.Layer):
-    "Construct a layer normalization module."
-
-    def __init__(self, features, eps=1e-6):
-        super(LayerNorm, self).__init__()
-        self.a_2 = tf.Variable(tf.ones([features]), trainable=True)
-        self.b_2 = tf.Variable(tf.zeros([features]), trainable=True)
-        self.eps = eps
-
-    def call(self, x):
-        mean = tf.math.reduce_mean(x, axis=-1, keepdims=True)
-        std = tf.math.reduce_std(x, axis=-1, keepdims=True)
-        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
-
+        # Output shape [batch_size, 78, 30]
+        return tf.transpose(x, [0, 2, 1])
 
 class SublayerOutput(tf.keras.layers.Layer):
     """
@@ -272,17 +209,12 @@ class SublayerOutput(tf.keras.layers.Layer):
 
     def __init__(self, size, dropout):
         super(SublayerOutput, self).__init__()
-        self.norm = LayerNorm(size)
+        self.norm = tf.keras.layers.LayerNormalization()
         self.dropout = tf.keras.layers.Dropout(dropout)
 
     def call(self, x, sublayer, *args, **kwargs):
         "Apply residual connection to any sublayer with the same size."
         return x + self.dropout(sublayer(self.norm(x)), *args, **kwargs)
-
-
-def clones(layer, N):
-    return [deepcopy(layer) for _ in range(N)]
-
 
 class TCE(tf.keras.layers.Layer):
     """
@@ -293,7 +225,7 @@ class TCE(tf.keras.layers.Layer):
     def __init__(self, layer, N):
         super(TCE, self).__init__()
         self.layers = clones(layer, N)
-        self.norm = LayerNorm(layer.size)
+        self.norm = tf.keras.layers.LayerNormalization()
 
     def call(self, x):
         for layer in self.layers:
@@ -316,7 +248,7 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.sublayer_output = [SublayerOutput(size, dropout) for _ in range(2)]
         self.size = size
         self.conv = tf.keras.layers.Conv1D(
-            afr_reduced_cnn_size, kernel_size=7, strides=1, dilation_rate=1
+            afr_reduced_cnn_size, kernel_size=7, strides=1, dilation_rate=1, padding='causal'
         )
 
     def call(self, x_in, training=False):
@@ -337,17 +269,18 @@ class PositionwiseFeedForward(tf.keras.layers.Layer):
 
     def call(self, x):
         "Implements FFN equation."
-        return self.w_2(self.dropout(self.w_1(x)))
-
+        x = tf.transpose(x, [0, 2, 1])
+        outputs =  self.w_2(self.dropout(self.w_1(x)))
+        return tf.transpose(outputs, [0, 2, 1])
 
 class AttnSleep(tf.keras.Model):
     def __init__(self):
         super(AttnSleep, self).__init__()
 
         N = 2  # number of TCE clones
-        d_model = 80  # set to be 100 for SHHS dataset
+        d_model = 78  #TODO: d_model needs to be divisible by h
         d_ff = 120  # dimension of feed forward
-        h = 5  # number of attention heads
+        h = 6  #TODO: Originally 5
         dropout = 0.1
         num_classes = 5
         afr_reduced_cnn_size = 30

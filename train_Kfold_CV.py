@@ -49,6 +49,8 @@ def main(config, fold_id):
     for layer in model.layers:
         weights_init_normal(layer)
     logger.info(model)
+    model.build((batch_size, 3000, 1))
+    model.summary()
 
     # get function handles of loss and metrics
     criterion = getattr(module_loss, config["loss"])
@@ -58,11 +60,6 @@ def main(config, fold_id):
         folds_data[fold_id][0], folds_data[fold_id][1], batch_size
     )
     weights_for_each_class = calc_class_weight(data_count)
-
-    #    single_sample = data_loader.take(1)
-    #    sample = next(iter(single_sample))
-    #    print("shape: ", sample[0].shape)
-    model.build((None, 3000, 1))
 
     optimizer = config.init_obj("optimizer", tf.optimizers, model.trainable_variables)
 
