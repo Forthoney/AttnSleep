@@ -39,5 +39,5 @@ for id in tqdm(data_ids):
     response = requests.get(f"{SERVER_URL}/api/access/datafile/{id}")
     content_disposition = response.headers.get("Content-Disposition")
     filename = re.search(r'filename="(.+)"', content_disposition).group(1)
-    with open(filename, "wb+") as f:
+    with open(f"{folder}/{filename}", "wb+") as f:
         f.write(response.content)
