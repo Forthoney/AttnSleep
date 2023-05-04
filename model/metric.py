@@ -7,6 +7,11 @@ def accuracy(output, target):
     correct = tf.reduce_sum(tf.cast(tf.equal(pred, target), tf.float32)).numpy()
     return correct / len(target)
 
+def confusion_matrix(output, target):
+    pred = tf.argmax(output, dim=1)
+    assert pred.shape[0] == len(target)
+    return confusion_matrix(pred, target)
+
 def f1(output, target):
     pred = tf.argmax(output, axis=1)
     assert pred.shape[0] == len(target)
