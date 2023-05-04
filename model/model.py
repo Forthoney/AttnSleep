@@ -2,9 +2,11 @@ from copy import deepcopy
 
 import tensorflow as tf
 
+
 ########################################################################################
 def clones(layer, N):
     return [deepcopy(layer) for _ in range(N)]
+
 
 class SELayer(tf.keras.layers.Layer):
     def __init__(self, channel, reduction=16):
@@ -33,7 +35,6 @@ class SEBasicBlock(tf.keras.layers.Layer):
 
     def __init__(
         self,
-        inplanes,
         planes,
         stride=1,
         downsample=None,
@@ -147,24 +148,25 @@ class MRCNN(tf.keras.Model):
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
+        layers.append(block(planes, stride, downsample))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
+            layers.append(block(planes))
 
         return tf.keras.Sequential(layers)
 
     def call(self, x):
         # Input Shape: (batch_size, 3000, 1)
-        x1 = self.features1(x) # Output Shape: (128, 63, 128)
-        x2 = self.features2(x) # Output Shape: (128, 15, 128)
-        x_concat = tf.concat([x1, x2], axis=1) # Output Shape: (128, 78, 128)
+        x1 = self.features1(x)  # Output Shape: (128, 63, 128)
+        x2 = self.features2(x)  # Output Shape: (128, 15, 128)
+        x_concat = tf.concat([x1, x2], axis=1)  # Output Shape: (128, 78, 128)
         x_concat = self.dropout(x_concat)
         x_concat = self.AFR(x_concat)
         return x_concat
 
 
 ##########################################################################################
+
 
 class MultiHeadedAttention(tf.keras.layers.Layer):
     def __init__(self, num_heads, model_dim, afr_reduced_cnn_size, dropout=0.1):
@@ -173,10 +175,17 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         self.model_dim = model_dim
         self.afr_reduced_cnn_size = afr_reduced_cnn_size
 
-        self.convs = [tf.keras.layers.Conv1D(filters=afr_reduced_cnn_size, kernel_size=7, strides=1, padding='causal') for _ in range(3)]
+        self.convs = [
+            tf.keras.layers.Conv1D(
+                filters=afr_reduced_cnn_size, kernel_size=7, strides=1, padding="causal"
+            )
+            for _ in range(3)
+        ]
         self.linear = tf.keras.layers.Dense(model_dim)
 
-        self.multihead_attention = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=model_dim//num_heads, dropout=dropout)
+        self.multihead_attention = tf.keras.layers.MultiHeadAttention(
+            num_heads=num_heads, key_dim=model_dim // num_heads, dropout=dropout
+        )
         self.reshape2 = tf.keras.layers.Reshape((num_heads, model_dim // num_heads, -1))
 
     def call(self, query, key, value):
@@ -185,7 +194,7 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         # key: [batch_size, 78, 30]
         # value: [batch_size, 78, 30]
         # may not be necessary
-        query = tf.keras.layers.Reshape((-1, self.afr_reduced_cnn_size))(query) 
+        query = tf.keras.layers.Reshape((-1, self.afr_reduced_cnn_size))(query)
 
         # query = self.convs[0](query)
         key = self.convs[1](key)
@@ -202,6 +211,7 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         # Output shape [batch_size, 78, 30]
         return tf.transpose(x, [0, 2, 1])
 
+
 class SublayerOutput(tf.keras.layers.Layer):
     """
     A residual connection followed by a layer norm.
@@ -215,6 +225,7 @@ class SublayerOutput(tf.keras.layers.Layer):
     def call(self, x, sublayer, *args, **kwargs):
         "Apply residual connection to any sublayer with the same size."
         return x + self.dropout(sublayer(self.norm(x)), *args, **kwargs)
+
 
 class TCE(tf.keras.layers.Layer):
     """
@@ -248,7 +259,11 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.sublayer_output = [SublayerOutput(size, dropout) for _ in range(2)]
         self.size = size
         self.conv = tf.keras.layers.Conv1D(
-            afr_reduced_cnn_size, kernel_size=7, strides=1, dilation_rate=1, padding='causal'
+            afr_reduced_cnn_size,
+            kernel_size=7,
+            strides=1,
+            dilation_rate=1,
+            padding="causal",
         )
 
     def call(self, x_in, training=False):
@@ -270,17 +285,18 @@ class PositionwiseFeedForward(tf.keras.layers.Layer):
     def call(self, x):
         "Implements FFN equation."
         x = tf.transpose(x, [0, 2, 1])
-        outputs =  self.w_2(self.dropout(self.w_1(x)))
+        outputs = self.w_2(self.dropout(self.w_1(x)))
         return tf.transpose(outputs, [0, 2, 1])
+
 
 class AttnSleep(tf.keras.Model):
     def __init__(self):
         super(AttnSleep, self).__init__()
 
         N = 2  # number of TCE clones
-        d_model = 78  #TODO: d_model needs to be divisible by h
+        d_model = 78  # TODO: d_model needs to be divisible by h
         d_ff = 120  # dimension of feed forward
-        h = 6  #TODO: Originally 5
+        h = 6  # TODO: Originally 5
         dropout = 0.1
         num_classes = 5
         afr_reduced_cnn_size = 30
