@@ -312,7 +312,7 @@ class AttnSleep(tf.keras.Model):
             N,
         )
 
-        self.fc = tf.keras.layers.Dense(num_classes, activation="softmax")
+        self.fc = tf.keras.layers.Dense(num_classes, activation="softmax") 
 
     def call(self, x):
         x_feat = self.mrcnn(x)

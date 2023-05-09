@@ -14,7 +14,9 @@ def load_Xy_from_numpy(np_dataset):
 
 
 def make_dataset(data, batch_size):
+    print(data)
     dataset = tf.data.Dataset.from_tensor_slices(data)
+    print(dataset)
     dataset = dataset.batch(batch_size, drop_remainder=False)
     dataset = dataset.shuffle(len(dataset), reshuffle_each_iteration=True)
 
@@ -24,6 +26,9 @@ def make_dataset(data, batch_size):
 def data_generator_np(training_files, subject_files, batch_size):
     X_train, y_train = load_Xy_from_numpy(training_files)
     X_test, y_test = load_Xy_from_numpy(subject_files)
+    print(X_train.shape)
+    print(y_train.shape)
+    
 
     # to calculate the ratio for the CAL
     all_ys = np.concatenate((y_train, y_test))

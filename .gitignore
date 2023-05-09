@@ -2,7 +2,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+edf20/
+edf78/
 # C extensions
 *.so
 

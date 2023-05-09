@@ -9,7 +9,7 @@ class Trainer(BaseTrainer):
     Trainer class
     """
     def __init__(self, model, criterion, metric_ftns, optimizer, config, data_loader, fold_id,
-                 valid_data_loader=None, class_weights=None):
+                 valid_data_loader=None, class_weights=None, batch_size=128):
         super().__init__(model, criterion, metric_ftns, optimizer, config, fold_id)
         self.config = config
         self.data_loader = data_loader
@@ -18,7 +18,7 @@ class Trainer(BaseTrainer):
         self.valid_data_loader = valid_data_loader
         self.do_validation = self.valid_data_loader is not None
         self.lr_scheduler = optimizer
-        self.log_step = int(data_loader.batch_size) * 1  # reduce this if you want more logs
+        self.log_step = int(batch_size) * 1  # reduce this if you want more logs
 
         self.train_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns])
         self.valid_metrics = MetricTracker('loss', *[m.__name__ for m in self.metric_ftns])
@@ -36,16 +36,19 @@ class Trainer(BaseTrainer):
               total_epochs: Integer, the total number of epoch
        :return: A log that contains average loss and metric in this epoch.
        """
-       self.train_metrics.reset_states() # Reset the training metrics
+       self.train_metrics.reset() # Reset the training metrics
        overall_outs = []
        overall_trgs = []
 
 
        for batch_idx, (data, target) in enumerate(self.data_loader):
+           
            data, target = data.numpy(), target.numpy() # Convert tensor data to numpy arrays
            data = tf.convert_to_tensor(data, dtype=tf.float32) # Convert numpy arrays to tensorflow tensors
-           target = tf.convert_to_tensor(target, dtype=tf.float32)
-
+           target = tf.convert_to_tensor(target, dtype=tf.int32)
+           print("HERE")
+           target = tf.one_hot(target, depth=5)
+           print(target.shape)
 
            with tf.GradientTape() as tape:
                output = self.model(data)
@@ -54,13 +57,14 @@ class Trainer(BaseTrainer):
 
            gradients = tape.gradient(loss, self.model.trainable_variables)
            self.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+           loss = loss.numpy()
 
-
-           self.train_metrics.update_state(loss)
-
+           self.train_metrics.update('loss', loss.item())
+           target = tf.cast(target, dtype=tf.int64)
+           output = tf.cast(output, dtype=tf.int64)
 
            for met in self.metric_ftns:
-               self.train_metrics.update_state(met(output, target))
+               self.train_metrics.update(met.__name__, met(output, target))
 
 
            if batch_idx % self.log_step == 0:

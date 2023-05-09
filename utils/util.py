@@ -44,9 +44,12 @@ def load_folds_data(np_data_path, n_folds):
     files_pairs = []
     for key in files_dict:
         files_pairs.append(files_dict[key])
+    for x in files_pairs:
+        if len(x) == 1:
+            print(x)
     files_pairs = np.array(files_pairs)
- #   files_pairs = files_pairs[r_permute]
 
+ #   files_pairs = files_pairs[r_permute]
     train_files = np.array_split(files_pairs, n_folds)
     folds_data = {}
     for fold_id in range(n_folds):

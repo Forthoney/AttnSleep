@@ -61,7 +61,7 @@ def main(config, fold_id):
     )
     weights_for_each_class = calc_class_weight(data_count)
 
-    optimizer = config.init_obj("optimizer", tf.optimizers, model.trainable_variables)
+    optimizer = config.init_obj("optimizer", tf.optimizers)
 
     trainer = Trainer(
         model,
