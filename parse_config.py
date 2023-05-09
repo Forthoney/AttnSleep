@@ -1,16 +1,25 @@
 import logging
 import os
+from argparse import ArgumentParser
 from datetime import datetime
 from functools import partial, reduce
 from operator import getitem
 from pathlib import Path
+from typing import Callable
 
 from logger import setup_logging
 from utils import read_json, write_json
 
 
 class ConfigParser:
-    def __init__(self, config, fold_id, resume=None, modification=None, run_id=None):
+    def __init__(
+        self,
+        config: dict,
+        fold_id: int,
+        resume=None,
+        modification=None,
+        run_id=None,
+    ):
         """
         class to parse configuration json file. Handles hyperparameters for training, initializations of modules, checkpoint saving
         and logging module.
@@ -48,7 +57,7 @@ class ConfigParser:
         self.log_levels = {0: logging.WARNING, 1: logging.INFO, 2: logging.DEBUG}
 
     @classmethod
-    def from_args(cls, args, fold_id, options=""):
+    def from_args(cls, args: ArgumentParser, fold_id: int, options: list):
         """
         Initialize this class from some cli arguments. Used in train, test.
         """
@@ -79,7 +88,7 @@ class ConfigParser:
         }
         return cls(config, fold_id, resume, modification)
 
-    def init_obj(self, name, module, *args, **kwargs):
+    def init_obj(self, name: str, module, *args, **kwargs):
         """
         Finds a function handle with the name given as 'type' in config, and returns the
         instance initialized with corresponding arguments given.
@@ -96,7 +105,7 @@ class ConfigParser:
         module_args.update(kwargs)
         return getattr(module, module_name)(*args, **module_args)
 
-    def init_ftn(self, name, module, *args, **kwargs):
+    def init_ftn(self, name: str, module, *args, **kwargs) -> Callable:
         """
         Finds a function handle with the name given as 'type' in config, and returns the
         function with given arguments fixed with functools.partial.
@@ -113,11 +122,11 @@ class ConfigParser:
         module_args.update(kwargs)
         return partial(getattr(module, module_name), *args, **module_args)
 
-    def __getitem__(self, name):
+    def __getitem__(self, name: str):
         """Access items like ordinary dict."""
         return self.config[name]
 
-    def get_logger(self, name, verbosity=2):
+    def get_logger(self, name: str, verbosity: int = 2) -> logging.Logger:
         msg_verbosity = "verbosity option {} is invalid. Valid options are {}.".format(
             verbosity, self.log_levels.keys()
         )

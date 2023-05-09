@@ -4,13 +4,23 @@ import numpy as np
 import tensorflow as tf
 from numpy import inf
 
+from parse_config import ConfigParser
+
 
 class BaseTrainer:
     """
     Base class for all trainers
     """
 
-    def __init__(self, model, criterion, metric_ftns, optimizer, config, fold_id):
+    def __init__(
+        self,
+        model: tf.keras.Model,
+        criterion: tf.keras.losses.Loss,
+        metric_ftns: tf.keras.metrics.Metric,
+        optimizer: tf.keras.optimizers.Optimizer,
+        config: ConfigParser,
+        fold_id: int,
+    ):
         self.config = config
         self.logger = config.get_logger("trainer", config["trainer"]["verbosity"])
 
@@ -113,7 +123,6 @@ class BaseTrainer:
                     break
 
             if epoch % self.save_period == 0:
-
                 self._save_checkpoint(checkpoint, epoch, save_best=best)
 
         outs_name = "outs_" + str(self.fold_id)
@@ -129,7 +138,7 @@ class BaseTrainer:
         setup GPU device if available, move model into configured device
         """
 
-        n_gpus = len(tf.config.list_physical_devices('GPU'))
+        n_gpus = len(tf.config.list_physical_devices("GPU"))
         if n_gpu_use > 0 and n_gpus == 0:
             self.logger.warning(
                 "Warning: There's no GPU available on this machine,"

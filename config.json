@@ -23,7 +23,7 @@
     },
     "loss": "weighted_CrossEntropyLoss",
     "metrics": [
-        "accuracy", "confusion_matrix", "f1"
+        "accuracy"
     ],
     "trainer": {
         "epochs": 100,

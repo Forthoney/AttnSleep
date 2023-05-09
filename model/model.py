@@ -4,12 +4,12 @@ import tensorflow as tf
 
 
 ########################################################################################
-def clones(layer, N):
+def clones(layer: tf.keras.layers.Layer, N: int):
     return [deepcopy(layer) for _ in range(N)]
 
 
 class SELayer(tf.keras.layers.Layer):
-    def __init__(self, channel, reduction=16):
+    def __init__(self, channel: int, reduction: int = 16):
         super(SELayer, self).__init__()
         self.avg_pool = tf.keras.layers.GlobalAveragePooling1D()
         self.fc = tf.keras.Sequential(
@@ -130,9 +130,11 @@ class MRCNN(tf.keras.Model):
         )
         self.dropout = tf.keras.layers.Dropout(drate)
         self.inplanes = 128
-        self.AFR = self._make_layer(SEBasicBlock, afr_reduced_cnn_size, 1)
+        self.AFR = self._make_afr_layer(SEBasicBlock, afr_reduced_cnn_size, 1)
 
-    def _make_layer(self, block, planes, blocks, stride=1):  # makes residual SE block
+    def _make_afr_layer(
+        self, block: tf.keras.layers.Layer, planes: int, blocks: int, stride=1
+    ):  # makes residual SE block
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = tf.keras.Sequential(
@@ -169,7 +171,9 @@ class MRCNN(tf.keras.Model):
 
 
 class MultiHeadedAttention(tf.keras.layers.Layer):
-    def __init__(self, num_heads, model_dim, afr_reduced_cnn_size, dropout=0.1):
+    def __init__(
+        self, num_heads: int, model_dim: int, afr_reduced_cnn_size: int, dropout=0.1
+    ):
         super().__init__()
         self.num_heads = num_heads
         self.model_dim = model_dim
@@ -217,14 +221,16 @@ class SublayerOutput(tf.keras.layers.Layer):
     A residual connection followed by a layer norm.
     """
 
-    def __init__(self, size, dropout):
+    def __init__(self, dropout: float):
         super(SublayerOutput, self).__init__()
         self.norm = tf.keras.layers.LayerNormalization()
         self.dropout = tf.keras.layers.Dropout(dropout)
 
     def call(self, x, sublayer, *args, **kwargs):
         "Apply residual connection to any sublayer with the same size."
-        return x + self.dropout(sublayer(self.norm(x)), *args, **kwargs)
+        normed_x = self.norm(x)
+        sublayer_x = sublayer(normed_x)
+        return x + self.dropout(sublayer_x, *args, **kwargs)
 
 
 class TCE(tf.keras.layers.Layer):
@@ -249,30 +255,45 @@ class EncoderLayer(tf.keras.layers.Layer):
     An encoder layer
 
     Made up of self-attention and a feed forward layer.
-    Each of these sublayers have residual and layer norm, implemented by SublayerOutput.
+    Each of these sublayers have residual and layer norm.
     """
 
-    def __init__(self, size, self_attn, feed_forward, afr_reduced_cnn_size, dropout):
+    def __init__(
+        self,
+        size: int,
+        self_attn: tf.keras.layers.Layer,
+        feed_forward: tf.keras.layers.Layer,
+        filter_size: int,
+        dropout: float,
+    ):
         super(EncoderLayer, self).__init__()
         self.self_attn = self_attn
         self.feed_forward = feed_forward
-        self.sublayer_output = [SublayerOutput(size, dropout) for _ in range(2)]
+
+        self.norm_1 = tf.keras.layers.LayerNormalization()
+        self.dropout_1 = tf.keras.layers.Dropout(dropout)
+
+        self.norm_2 = tf.keras.layers.LayerNormalization()
+        self.dropout_2 = tf.keras.layers.Dropout(dropout)
+
         self.size = size
         self.conv = tf.keras.layers.Conv1D(
-            afr_reduced_cnn_size,
+            filter_size,
             kernel_size=7,
             strides=1,
             dilation_rate=1,
             padding="causal",
         )
 
-    def call(self, x_in, training=False):
+    def call(self, x_in):
         "Transformer Encoder"
         query = self.conv(x_in)
-        x = self.sublayer_output[0](
-            query, lambda x: self.self_attn(query, x_in, x_in), training=training
-        )  # Encoder self-attention
-        return self.sublayer_output[1](x, self.feed_forward, training=training)
+
+        self_attn = self.self_attn(self.norm_1(query), x_in, x_in)
+        x = query + self.dropout_1(self_attn)
+
+        ff = self.feed_forward(self.norm_1(x))
+        return x + self.dropout_2(ff)
 
 
 class PositionwiseFeedForward(tf.keras.layers.Layer):
@@ -293,26 +314,24 @@ class AttnSleep(tf.keras.Model):
     def __init__(self):
         super(AttnSleep, self).__init__()
 
-        N = 2  # number of TCE clones
-        d_model = 78  # TODO: d_model needs to be divisible by h
-        d_ff = 120  # dimension of feed forward
-        h = 6  # TODO: Originally 5
-        dropout = 0.1
-        num_classes = 5
-        afr_reduced_cnn_size = 30
+        N: int = 2  # number of TCE clones
+        d_model: int = 78  # TODO: d_model needs to be divisible by h
+        d_ff: int = 120  # dimension of feed forward
+        h: int = 6  # TODO: Originally 5
+        dropout: float = 0.1
+        num_classes: int = 5
+        cnn_out_size: int = 30
 
-        self.mrcnn = MRCNN(afr_reduced_cnn_size)  # use MRCNN_SHHS for SHHS dataset
+        self.mrcnn = MRCNN(cnn_out_size)  # use MRCNN_SHHS for SHHS dataset
 
-        attn = MultiHeadedAttention(h, d_model, afr_reduced_cnn_size)
+        attn = MultiHeadedAttention(h, d_model, cnn_out_size)
         ff = PositionwiseFeedForward(d_model, d_ff, dropout)
         self.tce = TCE(
-            EncoderLayer(
-                d_model, deepcopy(attn), deepcopy(ff), afr_reduced_cnn_size, dropout
-            ),
+            EncoderLayer(d_model, deepcopy(attn), deepcopy(ff), cnn_out_size, dropout),
             N,
         )
 
-        self.fc = tf.keras.layers.Dense(num_classes, activation="softmax") 
+        self.fc = tf.keras.layers.Dense(num_classes, activation="softmax")
 
     def call(self, x):
         x_feat = self.mrcnn(x)
@@ -378,9 +397,11 @@ class MRCNN_SHHS(tf.keras.Model):
 
         self.dropout = tf.keras.layers.Dropout(drate)
         self.inplanes = 128
-        self.AFR = self._make_layer(SEBasicBlock, afr_reduced_cnn_size, 1)
+        self.AFR = self._make_afr_layer(SEBasicBlock, afr_reduced_cnn_size, 1)
 
-    def _make_layer(self, block, planes, blocks, stride=1):  # makes residual SE block
+    def _make_afr_layer(
+        self, block: tf.keras.layers.Layer, planes: int, blocks: int, stride: int = 1
+    ):  # makes residual SE block
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = tf.keras.Sequential(

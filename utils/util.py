@@ -1,18 +1,20 @@
 import json
-from pathlib import Path
-from collections import OrderedDict
-from itertools import repeat
-import pandas as pd
-import os
-import numpy as np
-from glob import glob
 import math
+import os
+from collections import OrderedDict
+from glob import glob
+from itertools import repeat
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
 
 def load_folds_data_shhs(np_data_path, n_folds):
     files = sorted(glob(os.path.join(np_data_path, "*.npz")))
     r_p_path = r"utils/r_permute_shhs.npy"
     r_permute = np.load(r_p_path)
-    npzfiles = np.asarray(files , dtype='<U200')[r_permute]
+    npzfiles = np.asarray(files, dtype="<U200")[r_permute]
     train_files = np.array_split(npzfiles, n_folds)
     folds_data = {}
     for fold_id in range(n_folds):
@@ -20,6 +22,7 @@ def load_folds_data_shhs(np_data_path, n_folds):
         training_files = list(set(npzfiles) - set(subject_files))
         folds_data[fold_id] = [training_files, subject_files]
     return folds_data
+
 
 def load_folds_data(np_data_path, n_folds):
     files = sorted(glob(os.path.join(np_data_path, "*.npz")))
@@ -31,11 +34,11 @@ def load_folds_data(np_data_path, n_folds):
     if os.path.exists(r_p_path):
         r_permute = np.load(r_p_path)
     else:
-        print ("============== ERROR =================")
+        print("============== ERROR =================")
 
     files_dict = dict()
     for i in files:
-        file_name = os.path.split(i)[-1] 
+        file_name = os.path.split(i)[-1]
         file_num = file_name[3:5]
         if file_num not in files_dict:
             files_dict[file_num] = [i]
@@ -44,12 +47,9 @@ def load_folds_data(np_data_path, n_folds):
     files_pairs = []
     for key in files_dict:
         files_pairs.append(files_dict[key])
-    for x in files_pairs:
-        if len(x) == 1:
-            print(x)
     files_pairs = np.array(files_pairs)
 
- #   files_pairs = files_pairs[r_permute]
+    #   files_pairs = files_pairs[r_permute]
     train_files = np.array_split(files_pairs, n_folds)
     folds_data = {}
     for fold_id in range(n_folds):
@@ -67,7 +67,13 @@ def calc_class_weight(labels_count):
     num_classes = len(labels_count)
 
     factor = 1 / num_classes
-    mu = [factor * 1.5, factor * 2, factor * 1.5, factor, factor * 1.5] # THESE CONFIGS ARE FOR SLEEP-EDF-20 ONLY
+    mu = [
+        factor * 1.5,
+        factor * 2,
+        factor * 1.5,
+        factor,
+        factor * 1.5,
+    ]  # THESE CONFIGS ARE FOR SLEEP-EDF-20 ONLY
 
     for key in range(num_classes):
         score = math.log(mu[key] * total / float(labels_count[key]))
@@ -87,18 +93,18 @@ def ensure_dir(dirname):
 
 def read_json(fname):
     fname = Path(fname)
-    with fname.open('rt') as handle:
+    with fname.open("rt") as handle:
         return json.load(handle, object_hook=OrderedDict)
 
 
 def write_json(content, fname):
     fname = Path(fname)
-    with fname.open('wt') as handle:
+    with fname.open("wt") as handle:
         json.dump(content, handle, indent=4, sort_keys=False)
 
 
 def inf_loop(data_loader):
-    ''' wrapper function for endless data loader. '''
+    """wrapper function for endless data loader."""
     for loader in repeat(data_loader):
         yield from loader
 
@@ -106,7 +112,7 @@ def inf_loop(data_loader):
 class MetricTracker:
     def __init__(self, *keys, writer=None):
         self.writer = writer
-        self._data = pd.DataFrame(index=keys, columns=['total', 'counts', 'average'])
+        self._data = pd.DataFrame(index=keys, columns=["total", "counts", "average"])
         self.reset()
 
     def reset(self):

@@ -45,7 +45,7 @@ def main(config, fold_id):
     logger = config.get_logger("train")
 
     # build model architecture, initialize weights, then print to console
-    model = config.init_obj("arch", module_arch)
+    model: tf.keras.Model = config.init_obj("arch", module_arch)
     for layer in model.layers:
         weights_init_normal(layer)
     logger.info(model)
