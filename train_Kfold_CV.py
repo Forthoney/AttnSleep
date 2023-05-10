@@ -49,6 +49,8 @@ def main(config, fold_id):
     for layer in model.layers:
         weights_init_normal(layer)
     logger.info(model)
+
+    print("Building Model...")
     model.build((batch_size, 3000, 1))
     model.summary(expand_nested=True, show_trainable=True)
 
@@ -56,6 +58,7 @@ def main(config, fold_id):
     criterion = getattr(module_loss, config["loss"])
     metrics = [getattr(module_metric, met) for met in config["metrics"]]
 
+    print("Loading Data...")
     data_loader, valid_data_loader, data_count = data_generator_np(
         folds_data[fold_id][0], folds_data[fold_id][1], batch_size
     )

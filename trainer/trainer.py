@@ -61,14 +61,6 @@ class Trainer(BaseTrainer):
         overall_trgs = []
 
         for batch_idx, (data, target) in enumerate(self.data_loader):
-            data, target = (
-                data.numpy(),
-                target.numpy(),
-            )  # Convert tensor data to numpy arrays
-            data = tf.convert_to_tensor(
-                data, dtype=tf.float32
-            )  # Convert numpy arrays to tensorflow tensors
-            target = tf.convert_to_tensor(target, dtype=tf.int32)
             target = tf.one_hot(target, depth=5)
 
             with tf.GradientTape() as tape:

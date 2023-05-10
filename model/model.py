@@ -257,7 +257,8 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.norm_1 = tf.keras.layers.LayerNormalization()
         self.norm_2 = tf.keras.layers.LayerNormalization()
 
-        self.dropout = tf.keras.layers.Dropout(dropout)
+        self.dropout_1 = tf.keras.layers.Dropout(dropout)
+        self.dropout_2 = tf.keras.layers.Dropout(dropout)
 
         self.conv = tf.keras.layers.Conv1D(
             filter_size,
@@ -272,10 +273,10 @@ class EncoderLayer(tf.keras.layers.Layer):
         query = self.conv(x_in)
 
         x = self.self_attn(self.norm_1(query), x_in, x_in)
-        x = query + self.dropout(x)
+        x = query + self.dropout_1(x)
 
         ff = self.feed_forward(self.norm_1(x))
-        return x + self.dropout(ff)
+        return x + self.dropout_2(ff)
 
 
 class PositionwiseFeedForward(tf.keras.layers.Layer):
@@ -306,12 +307,13 @@ class AttnSleep(tf.keras.Model):
 
         self.mrcnn = MultiresolutionCNN(d_cnn)  # use MRCNN_SHHS for SHHS dataset
         self.tce = TransformerEncoder(d_model, d_cnn, d_ff, n_heads, dropout, n_tce)
+        self.flatten = tf.keras.layers.Flatten()
         self.fc = tf.keras.layers.Dense(num_classes, activation="softmax")
 
     def call(self, x):
-        x_feat = self.mrcnn(x)
-        encoded_features = self.tce(x_feat)
-        encoded_features = tf.reshape(encoded_features, (encoded_features.shape[0], -1))
+        x_features = self.mrcnn(x)
+        encoded_features = self.tce(x_features)
+        encoded_features = self.flatten(encoded_features)
         final_output = self.fc(encoded_features)
         return final_output
 
