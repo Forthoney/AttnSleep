@@ -4,13 +4,10 @@ import tensorflow as tf
 
 def load_Xy_from_numpy(np_dataset: list[str]) -> tuple[np.ndarray, np.ndarray]:
     # load files
-    X = np.load(np_dataset[0])["x"]
-    y = np.load(np_dataset[0])["y"]
+    X = tuple([np.load(datum)["x"] for datum in np_dataset])
+    y = tuple([np.load(datum)["y"] for datum in np_dataset])
 
-    for np_file in np_dataset[1:]:
-        X = np.vstack((X, np.load(np_file)["x"]))
-        y = np.append(y, np.load(np_file)["y"])
-    return X, y
+    return np.vstack(X), np.hstack(y)
 
 
 def make_dataset(
@@ -28,8 +25,6 @@ def data_generator_np(
 ) -> tuple[tf.data.Dataset, tf.data.Dataset, list[int]]:
     X_train, y_train = load_Xy_from_numpy(training_files)
     X_test, y_test = load_Xy_from_numpy(subject_files)
-    print(X_train.shape)
-    print(y_train.shape)
 
     # to calculate the ratio for the CAL
     all_ys = np.concatenate((y_train, y_test))

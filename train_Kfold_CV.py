@@ -38,7 +38,7 @@ def weights_init_normal(layer):
         layer.beta_initializer = tf.keras.initializers.Zeros()
 
 
-def main(config, fold_id):
+def main(config, fold_id, folds_data):
     batch_size = config["data_loader"]["args"]["batch_size"]
     print("batch_size", batch_size)
 
@@ -127,4 +127,4 @@ if __name__ == "__main__":
             args2.np_data_dir, config["data_loader"]["args"]["num_folds"]
         )
 
-    main(config, fold_id)
+    main(config, fold_id, folds_data)

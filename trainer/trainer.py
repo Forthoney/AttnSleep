@@ -118,7 +118,7 @@ class Trainer(BaseTrainer):
         :return: A log that contains information about validation
         """
         self.model.trainable = False  # Set model to evaluation mode
-        self.valid_metrics.reset_states()  # Reset metric states
+        self.valid_metrics.reset()  # Reset metric states
         outs = np.array([])
         trgs = np.array([])
         for batch_idx, (data, target) in enumerate(self.valid_data_loader):

@@ -10,14 +10,6 @@ import numpy as np
 import pandas as pd
 
 
-def feature_label_split_shhs(
-    npz_files: np.ndarray, train_files: list[np.ndarray], fold_id: int
-) -> tuple:
-    labels = train_files[fold_id]
-    features = list(set(npz_files) - set(labels))
-    return labels, features
-
-
 def load_folds_data_shhs(np_data_path: str, n_folds: int) -> dict[int, tuple]:
     files = sorted(glob(os.path.join(np_data_path, "*.npz")))
     r_p_path = r"utils/r_permute_shhs.npy"
@@ -25,20 +17,12 @@ def load_folds_data_shhs(np_data_path: str, n_folds: int) -> dict[int, tuple]:
     npz_files = np.asarray(files, dtype="<U200")[r_permute]
     train_files = np.array_split(npz_files, n_folds)
 
-    folds_data = {
-        fold_id: feature_label_split_shhs(npz_files, train_files, fold_id)
-        for fold_id in range(n_folds)
-    }
+    folds_data = {}
+    for fold_id in range(n_folds):
+        subject_files = train_files[fold_id]
+        training_files = list(set(npz_files) - set(subject_files))
+        folds_data[fold_id] = [training_files, subject_files]
     return folds_data
-
-
-def feature_label_split(
-    files_pairs: np.ndarray, train_files: list[np.ndarray], fold_id: int
-) -> tuple:
-    labels = [item for sublist in train_files[fold_id] for item in sublist]
-    pairs = [item for sublist in files_pairs for item in sublist]
-    features = list(set(pairs) - set(labels))
-    return labels, features
 
 
 def load_folds_data(np_data_path: str, n_folds: int) -> dict[int, tuple]:
@@ -67,10 +51,13 @@ def load_folds_data(np_data_path: str, n_folds: int) -> dict[int, tuple]:
     #   files_pairs = files_pairs[r_permute]
     train_files = np.array_split(files_pairs, n_folds)
 
-    folds_data = {
-        fold_id: feature_label_split(files_pairs, train_files, fold_id)
-        for fold_id in range(n_folds)
-    }
+    folds_data = {}
+    for fold_id in range(n_folds):
+        subject_files = train_files[fold_id]
+        subject_files = [item for sublist in subject_files for item in sublist]
+        files_pairs2 = [item for sublist in files_pairs for item in sublist]
+        training_files = list(set(files_pairs2) - set(subject_files))
+        folds_data[fold_id] = [training_files, subject_files]
     return folds_data
 
 
