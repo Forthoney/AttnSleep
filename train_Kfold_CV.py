@@ -50,7 +50,7 @@ def main(config, fold_id):
         weights_init_normal(layer)
     logger.info(model)
     model.build((batch_size, 3000, 1))
-    model.summary()
+    model.summary(expand_nested=True, show_trainable=True)
 
     # get function handles of loss and metrics
     criterion = getattr(module_loss, config["loss"])

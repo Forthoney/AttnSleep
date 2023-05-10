@@ -1,11 +1,4 @@
-from copy import deepcopy
-
 import tensorflow as tf
-
-
-########################################################################################
-def clones(layer: tf.keras.layers.Layer, N: int):
-    return [deepcopy(layer) for _ in range(N)]
 
 
 class SELayer(tf.keras.layers.Layer):
@@ -76,12 +69,13 @@ class SEBasicBlock(tf.keras.layers.Layer):
         return out
 
 
-class MRCNN(tf.keras.Model):
+class MultiresolutionCNN(tf.keras.Model):
     def __init__(self, afr_reduced_cnn_size):
-        super(MRCNN, self).__init__()
+        super(MultiresolutionCNN, self).__init__()
         drate = 0.5
         self.features1 = tf.keras.Sequential(
-            [
+            name="high_res_features",
+            layers=[
                 # Convolution 1
                 tf.keras.layers.Conv1D(
                     64, kernel_size=50, strides=6, use_bias=False, padding="same"
@@ -103,11 +97,12 @@ class MRCNN(tf.keras.Model):
                 tf.keras.layers.BatchNormalization(),
                 tf.keras.layers.Activation(tf.keras.activations.gelu),
                 tf.keras.layers.MaxPool1D(pool_size=4, strides=4, padding="same"),
-            ]
+            ],
         )
 
         self.features2 = tf.keras.Sequential(
-            [
+            name="low_res_features",
+            layers=[
                 tf.keras.layers.Conv1D(
                     64, kernel_size=400, strides=50, use_bias=False, padding="same"
                 ),
@@ -126,16 +121,17 @@ class MRCNN(tf.keras.Model):
                 tf.keras.layers.BatchNormalization(),
                 tf.keras.layers.Activation(tf.keras.activations.gelu),
                 tf.keras.layers.MaxPool1D(pool_size=2, strides=2, padding="same"),
-            ]
+            ],
         )
         self.dropout = tf.keras.layers.Dropout(drate)
         self.inplanes = 128
-        self.AFR = self._make_afr_layer(SEBasicBlock, afr_reduced_cnn_size, 1)
+        self.AFR = self._make_afr_layer(afr_reduced_cnn_size, 1)
 
     def _make_afr_layer(
-        self, block: tf.keras.layers.Layer, planes: int, blocks: int, stride=1
+        self, planes: int, n_blocks: int, stride=1
     ):  # makes residual SE block
         downsample = None
+        block = SEBasicBlock
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = tf.keras.Sequential(
                 [
@@ -152,10 +148,10 @@ class MRCNN(tf.keras.Model):
         layers = []
         layers.append(block(planes, stride, downsample))
         self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
+        for i in range(1, n_blocks):
             layers.append(block(planes))
 
-        return tf.keras.Sequential(layers)
+        return tf.keras.Sequential(layers, "AFR")
 
     def call(self, x):
         # Input Shape: (batch_size, 3000, 1)
@@ -165,9 +161,6 @@ class MRCNN(tf.keras.Model):
         x_concat = self.dropout(x_concat)
         x_concat = self.AFR(x_concat)
         return x_concat
-
-
-##########################################################################################
 
 
 class MultiHeadedAttention(tf.keras.layers.Layer):
@@ -216,38 +209,30 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         return tf.transpose(x, [0, 2, 1])
 
 
-class SublayerOutput(tf.keras.layers.Layer):
-    """
-    A residual connection followed by a layer norm.
-    """
-
-    def __init__(self, dropout: float):
-        super(SublayerOutput, self).__init__()
-        self.norm = tf.keras.layers.LayerNormalization()
-        self.dropout = tf.keras.layers.Dropout(dropout)
-
-    def call(self, x, sublayer, *args, **kwargs):
-        "Apply residual connection to any sublayer with the same size."
-        normed_x = self.norm(x)
-        sublayer_x = sublayer(normed_x)
-        return x + self.dropout(sublayer_x, *args, **kwargs)
-
-
-class TCE(tf.keras.layers.Layer):
+class TransformerEncoder(tf.keras.layers.Layer):
     """
     Transformer Encoder
-    It is a stack of N layers.
+    It is a stack of n_tce layers.
     """
 
-    def __init__(self, layer, N):
-        super(TCE, self).__init__()
-        self.layers = clones(layer, N)
+    def __init__(self, d_model, d_cnn, d_ff, n_heads, dropout, n_tce):
+        super(TransformerEncoder, self).__init__()
+        self.encoder_layers = tf.keras.Sequential(
+            [
+                EncoderLayer(
+                    self_attn=MultiHeadedAttention(n_heads, d_model, d_cnn),
+                    feed_forward=PositionwiseFeedForward(d_model, d_ff, dropout),
+                    filter_size=d_cnn,
+                    dropout=dropout,
+                )
+                for _ in range(n_tce)
+            ]
+        )
         self.norm = tf.keras.layers.LayerNormalization()
 
     def call(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        return self.norm(x)
+        encoded_x = self.encoder_layers(x)
+        return self.norm(encoded_x)
 
 
 class EncoderLayer(tf.keras.layers.Layer):
@@ -260,7 +245,6 @@ class EncoderLayer(tf.keras.layers.Layer):
 
     def __init__(
         self,
-        size: int,
         self_attn: tf.keras.layers.Layer,
         feed_forward: tf.keras.layers.Layer,
         filter_size: int,
@@ -271,12 +255,10 @@ class EncoderLayer(tf.keras.layers.Layer):
         self.feed_forward = feed_forward
 
         self.norm_1 = tf.keras.layers.LayerNormalization()
-        self.dropout_1 = tf.keras.layers.Dropout(dropout)
-
         self.norm_2 = tf.keras.layers.LayerNormalization()
-        self.dropout_2 = tf.keras.layers.Dropout(dropout)
 
-        self.size = size
+        self.dropout = tf.keras.layers.Dropout(dropout)
+
         self.conv = tf.keras.layers.Conv1D(
             filter_size,
             kernel_size=7,
@@ -289,11 +271,11 @@ class EncoderLayer(tf.keras.layers.Layer):
         "Transformer Encoder"
         query = self.conv(x_in)
 
-        self_attn = self.self_attn(self.norm_1(query), x_in, x_in)
-        x = query + self.dropout_1(self_attn)
+        x = self.self_attn(self.norm_1(query), x_in, x_in)
+        x = query + self.dropout(x)
 
         ff = self.feed_forward(self.norm_1(x))
-        return x + self.dropout_2(ff)
+        return x + self.dropout(ff)
 
 
 class PositionwiseFeedForward(tf.keras.layers.Layer):
@@ -314,23 +296,16 @@ class AttnSleep(tf.keras.Model):
     def __init__(self):
         super(AttnSleep, self).__init__()
 
-        N: int = 2  # number of TCE clones
+        n_tce: int = 2  # number of TCE clones
         d_model: int = 78  # TODO: d_model needs to be divisible by h
         d_ff: int = 120  # dimension of feed forward
-        h: int = 6  # TODO: Originally 5
+        n_heads: int = 6  # TODO: Originally 5
         dropout: float = 0.1
         num_classes: int = 5
-        cnn_out_size: int = 30
+        d_cnn: int = 30
 
-        self.mrcnn = MRCNN(cnn_out_size)  # use MRCNN_SHHS for SHHS dataset
-
-        attn = MultiHeadedAttention(h, d_model, cnn_out_size)
-        ff = PositionwiseFeedForward(d_model, d_ff, dropout)
-        self.tce = TCE(
-            EncoderLayer(d_model, deepcopy(attn), deepcopy(ff), cnn_out_size, dropout),
-            N,
-        )
-
+        self.mrcnn = MultiresolutionCNN(d_cnn)  # use MRCNN_SHHS for SHHS dataset
+        self.tce = TransformerEncoder(d_model, d_cnn, d_ff, n_heads, dropout, n_tce)
         self.fc = tf.keras.layers.Dense(num_classes, activation="softmax")
 
     def call(self, x):
@@ -344,30 +319,29 @@ class AttnSleep(tf.keras.Model):
 ######################################################################
 
 
-class MRCNN_SHHS(tf.keras.Model):
+class MultiresolutionCNN_SHHS(tf.keras.Model):
     def __init__(self, afr_reduced_cnn_size):
-        super(MRCNN_SHHS, self).__init__()
+        super(MultiresolutionCNN_SHHS, self).__init__()
         drate = 0.5
-        self.GELU = tf.keras.layers.Activation(tf.nn.gelu)
         self.features1 = tf.keras.Sequential(
             [
                 tf.keras.layers.Conv1D(
                     64, kernel_size=50, strides=6, use_bias=False, padding="same"
                 ),
                 tf.keras.layers.BatchNormalization(),
-                self.GELU,
+                tf.keras.layers.Activation(tf.keras.activations.gelu),
                 tf.keras.layers.MaxPooling1D(pool_size=8, strides=2, padding="same"),
                 tf.keras.layers.Dropout(drate),
                 tf.keras.layers.Conv1D(
                     128, kernel_size=8, strides=1, use_bias=False, padding="same"
                 ),
                 tf.keras.layers.BatchNormalization(),
-                self.GELU,
+                tf.keras.layers.Activation(tf.keras.activations.gelu),
                 tf.keras.layers.Conv1D(
                     128, kernel_size=8, strides=1, use_bias=False, padding="same"
                 ),
                 tf.keras.layers.BatchNormalization(),
-                self.GELU,
+                tf.keras.layers.Activation(tf.keras.activations.gelu),
                 tf.keras.layers.MaxPooling1D(pool_size=4, strides=4, padding="same"),
             ]
         )
@@ -378,30 +352,31 @@ class MRCNN_SHHS(tf.keras.Model):
                     64, kernel_size=400, strides=50, use_bias=False, padding="same"
                 ),
                 tf.keras.layers.BatchNormalization(),
-                self.GELU,
+                tf.keras.layers.Activation(tf.keras.activations.gelu),
                 tf.keras.layers.MaxPooling1D(pool_size=4, strides=2, padding="same"),
                 tf.keras.layers.Dropout(drate),
                 tf.keras.layers.Conv1D(
                     128, kernel_size=6, strides=1, use_bias=False, padding="same"
                 ),
                 tf.keras.layers.BatchNormalization(),
-                self.GELU,
+                tf.keras.layers.Activation(tf.keras.activations.gelu),
                 tf.keras.layers.Conv1D(
                     128, kernel_size=6, strides=1, use_bias=False, padding="same"
                 ),
                 tf.keras.layers.BatchNormalization(),
-                self.GELU,
+                tf.keras.layers.Activation(tf.keras.activations.gelu),
                 tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="same"),
             ]
         )
 
         self.dropout = tf.keras.layers.Dropout(drate)
         self.inplanes = 128
-        self.AFR = self._make_afr_layer(SEBasicBlock, afr_reduced_cnn_size, 1)
+        self.AFR = self._make_afr_layer(afr_reduced_cnn_size, 1)
 
     def _make_afr_layer(
-        self, block: tf.keras.layers.Layer, planes: int, blocks: int, stride: int = 1
+        self, planes: int, n_blocks: int, stride: int = 1
     ):  # makes residual SE block
+        block = SEBasicBlock
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = tf.keras.Sequential(
@@ -419,7 +394,7 @@ class MRCNN_SHHS(tf.keras.Model):
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
         self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
+        for i in range(1, n_blocks):
             layers.append(block(self.inplanes, planes))
 
         return tf.keras.Sequential(layers)

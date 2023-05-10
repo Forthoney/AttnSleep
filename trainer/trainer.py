@@ -29,6 +29,7 @@ class Trainer(BaseTrainer):
         self.config = config
         self.data_loader = data_loader
         self.len_epoch = len(self.data_loader)
+        print(f"Len epoch {self.len_epoch}")
 
         self.valid_data_loader = valid_data_loader
         self.do_validation = self.valid_data_loader is not None
@@ -46,7 +47,7 @@ class Trainer(BaseTrainer):
         self.selected = 0
         self.class_weights = class_weights
 
-    def _train_epoch(self, epoch, total_epochs):
+    def _train_epoch(self, epoch: int, total_epochs):
         """
         Training logic for an epoch
 
@@ -97,10 +98,10 @@ class Trainer(BaseTrainer):
 
             if batch_idx == self.len_epoch:
                 break
-        log = {m.name: m.result().numpy() for m in self.train_metrics.metrics}
+        log = self.train_metrics.result()
 
         if self.do_validation:
-            val_log, outs, trgs = self.valid_epoch(epoch)
+            val_log, outs, trgs = self._valid_epoch(epoch)
             log.update(**{"val_" + k: v for k, v in val_log.items()})
             if val_log["accuracy"] > self.selected:
                 self.selected = val_log["accuracy"]
