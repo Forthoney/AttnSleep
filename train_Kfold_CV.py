@@ -59,7 +59,7 @@ def main(config, fold_id, folds_data):
     metrics = [getattr(module_metric, met) for met in config["metrics"]]
 
     print("Loading Data...")
-    data_loader, valid_data_loader, data_count = data_generator_np(
+    train_data, test_data, data_count = data_generator_np(
         folds_data[fold_id][0], folds_data[fold_id][1], batch_size
     )
     weights_for_each_class = calc_class_weight(data_count)
@@ -72,15 +72,15 @@ def main(config, fold_id, folds_data):
         metrics,
         optimizer,
         config=config,
-        data_loader=data_loader,
+        data_loader=train_data,
         fold_id=fold_id,
-        valid_data_loader=valid_data_loader,
+        valid_data_loader=test_data,
         class_weights=weights_for_each_class,
     )
 
-    print("Starting training")
-
+    print("Starting training...")
     trainer.train()
+
 
 
 if __name__ == "__main__":

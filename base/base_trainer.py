@@ -64,6 +64,15 @@ class BaseTrainer:
         :param epoch: Current epoch number
         """
         raise NotImplementedError
+    
+    @abstractmethod
+    def _valid_epoch(self):
+        """
+        Training logic for an epoch
+
+        :param epoch: Current epoch number
+        """
+        raise NotImplementedError
 
     def train(self):
         """
@@ -77,13 +86,23 @@ class BaseTrainer:
         checkpoint = tf.train.Checkpoint(model=self.model, optimizer=self.optimizer)
 
         for epoch in range(self.start_epoch, self.epochs + 1):
-            result, epoch_outs, epoch_trgs = self._train_epoch(epoch, self.epochs)
-
+            result= self._train_epoch(epoch, self.epochs)
+            
             # save logged informations into log dict
             log = {"epoch": epoch}
             log.update(result)
-            all_outs.extend(epoch_outs)
-            all_trgs.extend(epoch_trgs)
+
+            if self.do_validation:
+                selected_d = {"outs": [], "trg": []}
+                val_log, outs, trgs = self._valid_epoch(epoch)
+                log.update(**{"val_" + k: v for k, v in val_log.items()})
+                if val_log["accuracy"] > self.selected:
+                    self.selected = val_log["accuracy"]
+                    selected_d["outs"] = outs
+                    selected_d["trg"] = trgs
+                if epoch == self.epochs:
+                    all_outs.extend(selected_d["outs"])
+                    all_trgs.extend(selected_d["trg"])
             # print logged informations to the screen
             for key, value in log.items():
                 self.logger.info("    {:15s}: {}".format(str(key), value))

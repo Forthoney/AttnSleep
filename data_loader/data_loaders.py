@@ -7,7 +7,7 @@ def load_Xy_from_numpy(np_dataset: list[str]) -> tuple[np.ndarray, np.ndarray]:
     X = tuple([np.load(datum)["x"] for datum in np_dataset])
     y = tuple([np.load(datum)["y"] for datum in np_dataset])
 
-    return np.vstack(X), np.hstack(y)
+    return np.vstack(X), np.concatenate(y)
 
 
 def make_dataset(
@@ -31,6 +31,9 @@ def data_generator_np(
     all_ys = all_ys.tolist()
     num_classes = len(np.unique(all_ys))
     counts = [all_ys.count(i) for i in range(num_classes)]
+
+    y_train = tf.one_hot(y_train, depth=5)
+    y_test = tf.one_hot(y_test, depth=5)
 
     train_dataset = make_dataset((X_train, y_train), batch_size)
     test_dataset = make_dataset((X_test, y_test), batch_size)

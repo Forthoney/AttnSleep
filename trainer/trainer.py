@@ -61,8 +61,6 @@ class Trainer(BaseTrainer):
         overall_trgs = []
 
         for batch_idx, (data, target) in enumerate(self.data_loader):
-            target = tf.one_hot(target, depth=5)
-
             with tf.GradientTape() as tape:
                 output = self.model(data)
                 loss = self.criterion(output, target)
@@ -103,9 +101,9 @@ class Trainer(BaseTrainer):
                 overall_outs.extend(selected_d["outs"])
                 overall_trgs.extend(selected_d["trg"])
 
-            # The following part is used to reduce the learning rate after 10 epochs to 1e-4
-            if epoch == 10:
-                self.lr_scheduler.learning_rate = 0.0001
+        # The following part is used to reduce the learning rate after 10 epochs to 1e-4
+        if epoch == 10:
+            self.lr_scheduler.learning_rate = 1e-4
 
         return log, overall_outs, overall_trgs
 
@@ -122,9 +120,8 @@ class Trainer(BaseTrainer):
         outs = np.array([])
         trgs = np.array([])
         for batch_idx, (data, target) in enumerate(self.valid_data_loader):
-            data, target = data.to(self.device), target.to(self.device)
             output = self.model(data, training=False)
-            loss = self.criterion(output, target, self.class_weights, self.device)
+            loss = self.criterion(output, target)
 
             self.valid_metrics.update("loss", loss.numpy())
             for met in self.metric_ftns:
