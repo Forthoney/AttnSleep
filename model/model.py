@@ -1,10 +1,43 @@
 import tensorflow as tf
 
 
+class AdaptiveAveragePooling1D(tf.keras.layers.Layer):
+
+    """TensorFlow Implementation of Pytorch's AdaptiveAvgPool1D. Inspired heavily by
+    TFA's AdaptivePooling1D
+
+    Attributes:
+        output_size: output size of the channel to be reduced
+    """
+
+    def __init__(
+        self,
+        output_size: int,
+        trainable=True,
+        name=None,
+        dtype=None,
+        dynamic=False,
+        **kwargs
+    ):
+        super().__init__(trainable, name, dtype, dynamic, **kwargs)
+        self.output_size = output_size
+
+    def call(self, inputs):
+        splits = tf.split(inputs, self.output_size, axis=1)
+        splits = tf.stack(splits, axis=1)
+        out_vect = tf.reduce_mean(splits, axis=2)
+        return out_vect
+
+    def compute_output_shape(self, input_shape):
+        input_shape = tf.TensorShape(input_shape).as_list()
+        shape = tf.TensorShape([input_shape[0], self.output_size, input_shape[2]])
+        return shape
+
+
 class SqueezeExcitation(tf.keras.layers.Layer):
     def __init__(self, channel: int, reduction: int = 16):
         super(SqueezeExcitation, self).__init__()
-        self.avg_pool = tf.keras.layers.GlobalAveragePooling1D()
+        self.avg_pool = AdaptiveAveragePooling1D(1)
         self.fc = tf.keras.Sequential(
             [
                 tf.keras.layers.Dense(channel // reduction, use_bias=False),
@@ -18,7 +51,6 @@ class SqueezeExcitation(tf.keras.layers.Layer):
         # Input shape (batch_size, 78, 30)
         y = self.avg_pool(inputs)
         y = self.fc(y)
-        y = tf.expand_dims(y, 1)
         output = tf.multiply(inputs, tf.broadcast_to(y, tf.shape(inputs)))
         return output
 
