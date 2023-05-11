@@ -3,9 +3,9 @@ from argparse import ArgumentParser
 
 import tensorflow as tf
 
-from data_loader.data_loaders import data_generator_np
+from load_data import data_generator_np
 from model.model import AttnSleep
-from utils.util import calc_class_weight, load_folds_data, load_folds_data_shhs
+from util import calc_class_weight, load_folds_data, load_folds_data_shhs
 
 # fix random seeds for reproducibility
 SEED = 123
@@ -53,6 +53,7 @@ def prepare_datasets(num_folds, data_dir, fold_id, batch_size):
 if __name__ == "__main__":
     parser = ArgumentParser("AttnSleep Training")
     parser.add_argument("-c", "--config", default="config.json", type=str)
+    parser.add_argument("--checkpoint", default="checkpoints/", type=str)
     parser.add_argument("-f", "--fold_id", type=int)
     parser.add_argument("-da", "--data_dir", type=str)
     args = parser.parse_args()
@@ -74,7 +75,7 @@ if __name__ == "__main__":
     model.compile(optimizer, loss, metrics, run_eagerly=False, jit_compile=True)
 
     checkpointing = tf.keras.callbacks.ModelCheckpoint(
-        filepath="model_checkpoint",  # path to save the checkpoint file
+        filepath=args.checkpoint,  # path to save the checkpoint file
         save_weights_only=True,  # save only the weights instead of the whole model
         monitor="val_categorical_accuracy",  # metric to monitor for saving the checkpoint
         mode="max",  # mode of the monitored metric (max or min)
