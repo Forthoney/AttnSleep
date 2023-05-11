@@ -1,7 +1,7 @@
 import json
 import math
 import os
-from collections import OrderedDict, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 from glob import glob
 from itertools import repeat
 from pathlib import Path
@@ -61,12 +61,11 @@ def load_folds_data(np_data_path: str, n_folds: int) -> dict[int, tuple]:
     return folds_data
 
 
-def calc_class_weight(labels_count):
-    total = np.sum(labels_count)
+def calc_class_weight(labels_count: Counter) -> dict[int, float]:
     class_weight = dict()
-    num_classes = len(labels_count)
+    total = len(labels_count)
 
-    factor = 1 / num_classes
+    factor = 1 / total
     mu = [
         factor * 1.5,
         factor * 2,
@@ -75,12 +74,10 @@ def calc_class_weight(labels_count):
         factor * 1.5,
     ]  # THESE CONFIGS ARE FOR SLEEP-EDF-20 ONLY
 
-    for key in range(num_classes):
-        score = math.log(mu[key] * total / float(labels_count[key]))
+    for key, count in labels_count.items():
+        score = math.log(mu[key] * total / float(count))
         class_weight[key] = score if score > 1.0 else 1.0
         class_weight[key] = round(class_weight[key] * mu[key], 2)
-
-    class_weight = [class_weight[i] for i in range(num_classes)]
 
     return class_weight
 

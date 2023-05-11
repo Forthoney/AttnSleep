@@ -1,3 +1,5 @@
+from collections import Counter
+
 import numpy as np
 import tensorflow as tf
 
@@ -22,15 +24,13 @@ def make_dataset(
 
 def data_generator_np(
     training_files: list[str], subject_files: list[str], batch_size: int
-) -> tuple[tf.data.Dataset, tf.data.Dataset, list[int]]:
+) -> tuple[tf.data.Dataset, tf.data.Dataset, Counter]:
     X_train, y_train = load_Xy_from_numpy(training_files)
     X_test, y_test = load_Xy_from_numpy(subject_files)
 
     # to calculate the ratio for the CAL
     all_ys = np.concatenate((y_train, y_test))
-    all_ys = all_ys.tolist()
-    num_classes = len(np.unique(all_ys))
-    counts = [all_ys.count(i) for i in range(num_classes)]
+    counts = Counter(all_ys)
 
     y_train = tf.one_hot(y_train, depth=5)
     y_test = tf.one_hot(y_test, depth=5)

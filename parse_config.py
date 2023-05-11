@@ -5,7 +5,8 @@ from datetime import datetime
 from functools import partial, reduce
 from operator import getitem
 from pathlib import Path
-from typing import Callable
+from types import ModuleType
+from typing import Callable, Type
 
 from logger import setup_logging
 from utils import read_json, write_json
@@ -57,14 +58,18 @@ class ConfigParser:
         self.log_levels = {0: logging.WARNING, 1: logging.INFO, 2: logging.DEBUG}
 
     @classmethod
-    def from_args(cls, args: ArgumentParser, fold_id: int, options: list):
+    def from_args(
+        cls: Type["ConfigParser"],
+        parser: ArgumentParser,
+        fold_id: int,
+        options: list,
+    ) -> "ConfigParser":
         """
         Initialize this class from some cli arguments. Used in train, test.
         """
         for opt in options:
-            args.add_argument(*opt.flags, default=None, type=opt.type)
-        if not isinstance(args, tuple):
-            args = args.parse_args()
+            parser.add_argument(*opt.flags, default=None, type=opt.type)
+        args = parser.parse_args()
 
         if args.device is not None:
             os.environ["CUDA_VISIBLE_DEVICES"] = args.device
@@ -88,7 +93,7 @@ class ConfigParser:
         }
         return cls(config, fold_id, resume, modification)
 
-    def init_obj(self, name: str, module, *args, **kwargs):
+    def init_obj(self, name: str, module: ModuleType, *args, **kwargs):
         """
         Finds a function handle with the name given as 'type' in config, and returns the
         instance initialized with corresponding arguments given.

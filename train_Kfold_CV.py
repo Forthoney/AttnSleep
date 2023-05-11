@@ -18,7 +18,7 @@ tf.random.set_seed(SEED)
 np.random.seed(SEED)
 
 
-def weights_init_normal(layer):
+def weights_init_normal(layer: tf.keras.layers.Layer):
     if isinstance(layer, tf.keras.layers.Conv2D):
         layer.kernel_initializer = tf.keras.initializers.RandomNormal(
             mean=0.0, stddev=0.02
@@ -38,10 +38,8 @@ def weights_init_normal(layer):
         layer.beta_initializer = tf.keras.initializers.Zeros()
 
 
-def main(config, fold_id, folds_data):
+def main(config: ConfigParser, fold_id: int, data):
     batch_size = config["data_loader"]["args"]["batch_size"]
-    print("batch_size", batch_size)
-
     logger = config.get_logger("train")
 
     # build model architecture, initialize weights, then print to console
@@ -50,81 +48,90 @@ def main(config, fold_id, folds_data):
         weights_init_normal(layer)
     logger.info(model)
 
-    print("Building Model...")
-    model.build((batch_size, 3000, 1))
-    model.summary(expand_nested=True, show_trainable=True)
-
     # get function handles of loss and metrics
-    criterion = getattr(module_loss, config["loss"])
+    loss = getattr(module_loss, config["loss"])
     metrics = [getattr(module_metric, met) for met in config["metrics"]]
 
     print("Loading Data...")
-    train_data, test_data, data_count = data_generator_np(
-        folds_data[fold_id][0], folds_data[fold_id][1], batch_size
+    train_data, val_data, data_count = data_generator_np(
+        data[fold_id][0], data[fold_id][1], batch_size
     )
-    weights_for_each_class = calc_class_weight(data_count)
 
     optimizer = config.init_obj("optimizer", tf.optimizers)
 
-    trainer = Trainer(
-        model,
-        criterion,
-        metrics,
-        optimizer,
-        config=config,
-        data_loader=train_data,
-        fold_id=fold_id,
-        valid_data_loader=test_data,
-        class_weights=weights_for_each_class,
+    print("Starting training...")
+
+    model.compile(
+        optimizer=optimizer,
+        loss=loss,
+        metrics=metrics,
+        run_eagerly=False,
+        jit_compile=True,
+    )
+    checkpointing = tf.keras.callbacks.ModelCheckpoint(
+        filepath="model_checkpoint",  # path to save the checkpoint file
+        save_weights_only=True,  # save only the weights instead of the whole model
+        monitor="val_accuracy",  # metric to monitor for saving the checkpoint
+        mode="max",  # mode of the monitored metric (max or min)
+        save_best_only=True,  # save only the best model according to the monitored metric
+    )
+    model.fit(
+        train_data, epochs=10, validation_data=val_data, callbacks=[checkpointing]
     )
 
-    print("Starting training...")
-    trainer.train()
+
+def load_data(config, data_dir):
+    if "shhs" in data_dir:
+        folds_data = load_folds_data_shhs(
+            data_dir, config["data_loader"]["args"]["num_folds"]
+        )
+    else:
+        folds_data = load_folds_data(
+            data_dir, config["data_loader"]["args"]["num_folds"]
+        )
+
+    return folds_data
 
 
-
-if __name__ == "__main__":
-    args = argparse.ArgumentParser(description="Tensorflow Template")
-    args.add_argument(
+def parse_cli() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Tensorflow Template")
+    parser.add_argument(
         "-c",
         "--config",
         default="config.json",
         type=str,
         help="config file path (default: None)",
     )
-    args.add_argument(
+    parser.add_argument(
         "-r",
         "--resume",
         default=None,
         type=str,
         help="path to latest checkpoint (default: None)",
     )
-    args.add_argument(
+    parser.add_argument(
         "-d",
         "--device",
         default="0",
         type=str,
         help="indices of GPUs to enable (default: all)",
     )
-    args.add_argument("-f", "--fold_id", type=str, help="fold_id")
-    args.add_argument(
+    parser.add_argument("-f", "--fold_id", type=str, help="fold_id")
+    parser.add_argument(
         "-da", "--np_data_dir", type=str, help="Directory containing numpy files"
     )
 
+    return parser
+
+
+if __name__ == "__main__":
+    parser = parse_cli()
     CustomArgs = collections.namedtuple("CustomArgs", "flags type target")
     options = []
 
-    args2 = args.parse_args()
-    fold_id = int(args2.fold_id)
+    args = parser.parse_args()
+    fold_id = int(args.fold_id)
+    config = ConfigParser.from_args(parser, fold_id, options)
+    data = load_data(config, args.np_data_dir)
 
-    config = ConfigParser.from_args(args, fold_id, options)
-    if "shhs" in args2.np_data_dir:
-        folds_data = load_folds_data_shhs(
-            args2.np_data_dir, config["data_loader"]["args"]["num_folds"]
-        )
-    else:
-        folds_data = load_folds_data(
-            args2.np_data_dir, config["data_loader"]["args"]["num_folds"]
-        )
-
-    main(config, fold_id, folds_data)
+    main(config, fold_id, data)

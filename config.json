@@ -1,35 +1,38 @@
 {
-    "name": "Exp1",
-    "n_gpu": 1,
-
-    "arch": {
-        "type": "AttnSleep",
-        "args": {
-        }
-    },
-    "data_loader": {
-        "args":{
-            "batch_size": 128,
-            "num_folds": 20
-        }
-    },
-    "optimizer": {
-        "type": "Adam",
-        "args":{
-            "learning_rate": 0.001,
-            "weight_decay": 0.001,
-            "amsgrad": true
-        }
-    },
-    "loss": "weighted_CrossEntropyLoss",
-    "metrics": [
-        "accuracy"
-    ],
-    "trainer": {
-        "epochs": 100,
-        "save_dir": "saved/",
-        "save_period": 30,
-        "verbosity": 2,
-        "monitor": "min val_loss"
+  "num_epochs": 5,
+  "batch_size": 128,
+  "num_folds": 20,
+  "loss": {
+    "class_name": "CategoricalCrossentropy",
+    "config": {
+      "reduction": "auto",
+      "name": "categorical_crossentropy",
+      "from_logits": false,
+      "label_smoothing": 0,
+      "axis": -1
     }
+  },
+  "optimizer": {
+    "class_name": "Custom>Adam",
+    "config": {
+      "name": "Adam",
+      "weight_decay": 0.001,
+      "clipnorm": null,
+      "global_clipnorm": null,
+      "clipvalue": null,
+      "use_ema": false,
+      "ema_momentum": 0.99,
+      "ema_overwrite_frequency": null,
+      "jit_compile": true,
+      "is_legacy_optimizer": false,
+      "learning_rate": 0.001,
+      "beta_1": 0.9,
+      "beta_2": 0.999,
+      "epsilon": 1e-07,
+      "amsgrad": false
+    }
+  },
+  "metrics": [
+    "CategoricalAccuracy"
+  ]
 }
