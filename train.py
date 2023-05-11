@@ -53,7 +53,7 @@ def prepare_datasets(num_folds, data_dir, fold_id, batch_size):
 if __name__ == "__main__":
     parser = ArgumentParser("AttnSleep Training")
     parser.add_argument("-c", "--config", default="config.json", type=str)
-    parser.add_argument("--checkpoint", default="checkpoints/", type=str)
+    parser.add_argument("--checkpoint", default="checkpoints", type=str)
     parser.add_argument("-f", "--fold_id", type=int)
     parser.add_argument("-da", "--data_dir", type=str)
     args = parser.parse_args()

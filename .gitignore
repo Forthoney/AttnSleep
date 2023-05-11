@@ -166,3 +166,4 @@ data/*
 saved/
 test/
 shrun.sh
+checkpoints/

@@ -1,9 +1,9 @@
 import tensorflow as tf
 
 
-class SELayer(tf.keras.layers.Layer):
+class SqueezeExcitation(tf.keras.layers.Layer):
     def __init__(self, channel: int, reduction: int = 16):
-        super(SELayer, self).__init__()
+        super(SqueezeExcitation, self).__init__()
         self.avg_pool = tf.keras.layers.GlobalAveragePooling1D()
         self.fc = tf.keras.Sequential(
             [
@@ -23,7 +23,7 @@ class SELayer(tf.keras.layers.Layer):
         return output
 
 
-class SEBasicBlock(tf.keras.layers.Layer):
+class SqueezeExcitationBlock(tf.keras.layers.Layer):
     expansion = 1
 
     def __init__(
@@ -38,14 +38,14 @@ class SEBasicBlock(tf.keras.layers.Layer):
         *,
         reduction=16
     ):
-        super(SEBasicBlock, self).__init__()
+        super(SqueezeExcitationBlock, self).__init__()
 
         self.conv1 = tf.keras.layers.Conv1D(planes, stride)
         self.bn1 = tf.keras.layers.BatchNormalization()
         self.relu = tf.keras.layers.ReLU()
         self.conv2 = tf.keras.layers.Conv1D(planes, 1)
         self.bn2 = tf.keras.layers.BatchNormalization()
-        self.se = SELayer(planes, reduction)
+        self.se = SqueezeExcitation(planes, reduction)
         self.downsample = downsample
         self.stride = stride
 
@@ -131,7 +131,7 @@ class MultiresolutionCNN(tf.keras.Model):
         self, planes: int, n_blocks: int, stride=1
     ):  # makes residual SE block
         downsample = None
-        block = SEBasicBlock
+        block = SqueezeExcitationBlock
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = tf.keras.Sequential(
                 [
@@ -151,7 +151,7 @@ class MultiresolutionCNN(tf.keras.Model):
         for i in range(1, n_blocks):
             layers.append(block(planes))
 
-        return tf.keras.Sequential(layers, "AFR")
+        return tf.keras.Sequential(layers, "adaptive_feature_recalibration")
 
     def call(self, x):
         # Input Shape: (batch_size, 3000, 1)
@@ -209,14 +209,14 @@ class MultiHeadedAttention(tf.keras.layers.Layer):
         return tf.transpose(x, [0, 2, 1])
 
 
-class TransformerEncoder(tf.keras.layers.Layer):
+class TemporalContextEncoder(tf.keras.layers.Layer):
     """
     Transformer Encoder
     It is a stack of n_tce layers.
     """
 
     def __init__(self, d_model, d_cnn, d_ff, n_heads, dropout, n_tce):
-        super(TransformerEncoder, self).__init__()
+        super(TemporalContextEncoder, self).__init__()
         self.encoder_layers = tf.keras.Sequential(
             [
                 EncoderLayer(
@@ -306,7 +306,7 @@ class AttnSleep(tf.keras.Model):
         d_cnn: int = 30
 
         self.mrcnn = MultiresolutionCNN(d_cnn)  # use MRCNN_SHHS for SHHS dataset
-        self.tce = TransformerEncoder(d_model, d_cnn, d_ff, n_heads, dropout, n_tce)
+        self.tce = TemporalContextEncoder(d_model, d_cnn, d_ff, n_heads, dropout, n_tce)
         self.flatten = tf.keras.layers.Flatten()
         self.fc = tf.keras.layers.Dense(num_classes, activation="softmax")
 
@@ -378,7 +378,7 @@ class MultiresolutionCNN_SHHS(tf.keras.Model):
     def _make_afr_layer(
         self, planes: int, n_blocks: int, stride: int = 1
     ):  # makes residual SE block
-        block = SEBasicBlock
+        block = SqueezeExcitationBlock
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = tf.keras.Sequential(
@@ -399,7 +399,7 @@ class MultiresolutionCNN_SHHS(tf.keras.Model):
         for i in range(1, n_blocks):
             layers.append(block(self.inplanes, planes))
 
-        return tf.keras.Sequential(layers)
+        return tf.keras.Sequential(layers, name="adaptive_feature_recalibration")
 
     def call(self, x):
         x1 = self.features1(x)

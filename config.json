@@ -33,6 +33,6 @@
     }
   },
   "metrics": [
-    "CategoricalAccuracy"
+    "CategoricalAccuracy", "F1Score"
   ]
 }
