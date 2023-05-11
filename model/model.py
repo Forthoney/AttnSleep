@@ -102,9 +102,10 @@ class SqueezeExcitationBlock(tf.keras.layers.Layer):
 
 
 class MultiresolutionCNN(tf.keras.Model):
-    def __init__(self, afr_reduced_cnn_size):
+    def __init__(self, afr_reduced_cnn_size, is_shhs: False):
         super(MultiresolutionCNN, self).__init__()
-        drate = 0.5
+        drop_rate = 0.5
+        kernel_size = 6 if is_shhs else 7
         self.features1 = tf.keras.Sequential(
             name="high_res_features",
             layers=[
@@ -115,7 +116,7 @@ class MultiresolutionCNN(tf.keras.Model):
                 tf.keras.layers.BatchNormalization(),
                 tf.keras.layers.Activation(tf.keras.activations.gelu),
                 tf.keras.layers.MaxPool1D(pool_size=8, strides=2, padding="same"),
-                tf.keras.layers.Dropout(drate),
+                tf.keras.layers.Dropout(drop_rate),
                 # Convolution 2
                 tf.keras.layers.Conv1D(
                     128, kernel_size=8, strides=1, use_bias=False, padding="same"
@@ -141,30 +142,37 @@ class MultiresolutionCNN(tf.keras.Model):
                 tf.keras.layers.BatchNormalization(),
                 tf.keras.layers.Activation(tf.keras.activations.gelu),
                 tf.keras.layers.MaxPool1D(pool_size=4, strides=2, padding="same"),
-                tf.keras.layers.Dropout(drate),
+                tf.keras.layers.Dropout(drop_rate),
                 tf.keras.layers.Conv1D(
-                    128, kernel_size=7, strides=1, use_bias=False, padding="same"
+                    128,
+                    kernel_size=kernel_size,
+                    strides=1,
+                    use_bias=False,
+                    padding="same",
                 ),
                 tf.keras.layers.BatchNormalization(),
                 tf.keras.layers.Activation(tf.keras.activations.gelu),
                 tf.keras.layers.Conv1D(
-                    128, kernel_size=7, strides=1, use_bias=False, padding="same"
+                    128,
+                    kernel_size=kernel_size,
+                    strides=1,
+                    use_bias=False,
+                    padding="same",
                 ),
                 tf.keras.layers.BatchNormalization(),
                 tf.keras.layers.Activation(tf.keras.activations.gelu),
                 tf.keras.layers.MaxPool1D(pool_size=2, strides=2, padding="same"),
             ],
         )
-        self.dropout = tf.keras.layers.Dropout(drate)
-        self.inplanes = 128
-        self.AFR = self._make_afr_layer(afr_reduced_cnn_size, 1)
+        self.dropout = tf.keras.layers.Dropout(drop_rate)
+        self.afr = self._make_afr_layer(afr_reduced_cnn_size, 1)
 
     def _make_afr_layer(
         self, planes: int, n_blocks: int, stride=1
     ):  # makes residual SE block
         downsample = None
         block = SqueezeExcitationBlock
-        if stride != 1 or self.inplanes != planes * block.expansion:
+        if stride != 1:
             downsample = tf.keras.Sequential(
                 [
                     tf.keras.layers.Conv1D(
@@ -179,7 +187,6 @@ class MultiresolutionCNN(tf.keras.Model):
 
         layers = []
         layers.append(block(planes, stride, downsample))
-        self.inplanes = planes * block.expansion
         for i in range(1, n_blocks):
             layers.append(block(planes))
 
@@ -191,7 +198,7 @@ class MultiresolutionCNN(tf.keras.Model):
         x2 = self.features2(x)  # Output Shape: (128, 15, 128)
         x_concat = tf.concat([x1, x2], axis=1)  # Output Shape: (128, 78, 128)
         x_concat = self.dropout(x_concat)
-        x_concat = self.AFR(x_concat)
+        x_concat = self.afr(x_concat)
         return x_concat
 
 
@@ -348,95 +355,3 @@ class AttnSleep(tf.keras.Model):
         encoded_features = self.flatten(encoded_features)
         final_output = self.fc(encoded_features)
         return final_output
-
-
-######################################################################
-
-
-class MultiresolutionCNN_SHHS(tf.keras.Model):
-    def __init__(self, afr_reduced_cnn_size):
-        super(MultiresolutionCNN_SHHS, self).__init__()
-        drate = 0.5
-        self.features1 = tf.keras.Sequential(
-            [
-                tf.keras.layers.Conv1D(
-                    64, kernel_size=50, strides=6, use_bias=False, padding="same"
-                ),
-                tf.keras.layers.BatchNormalization(),
-                tf.keras.layers.Activation(tf.keras.activations.gelu),
-                tf.keras.layers.MaxPooling1D(pool_size=8, strides=2, padding="same"),
-                tf.keras.layers.Dropout(drate),
-                tf.keras.layers.Conv1D(
-                    128, kernel_size=8, strides=1, use_bias=False, padding="same"
-                ),
-                tf.keras.layers.BatchNormalization(),
-                tf.keras.layers.Activation(tf.keras.activations.gelu),
-                tf.keras.layers.Conv1D(
-                    128, kernel_size=8, strides=1, use_bias=False, padding="same"
-                ),
-                tf.keras.layers.BatchNormalization(),
-                tf.keras.layers.Activation(tf.keras.activations.gelu),
-                tf.keras.layers.MaxPooling1D(pool_size=4, strides=4, padding="same"),
-            ]
-        )
-
-        self.features2 = tf.keras.Sequential(
-            [
-                tf.keras.layers.Conv1D(
-                    64, kernel_size=400, strides=50, use_bias=False, padding="same"
-                ),
-                tf.keras.layers.BatchNormalization(),
-                tf.keras.layers.Activation(tf.keras.activations.gelu),
-                tf.keras.layers.MaxPooling1D(pool_size=4, strides=2, padding="same"),
-                tf.keras.layers.Dropout(drate),
-                tf.keras.layers.Conv1D(
-                    128, kernel_size=6, strides=1, use_bias=False, padding="same"
-                ),
-                tf.keras.layers.BatchNormalization(),
-                tf.keras.layers.Activation(tf.keras.activations.gelu),
-                tf.keras.layers.Conv1D(
-                    128, kernel_size=6, strides=1, use_bias=False, padding="same"
-                ),
-                tf.keras.layers.BatchNormalization(),
-                tf.keras.layers.Activation(tf.keras.activations.gelu),
-                tf.keras.layers.MaxPooling1D(pool_size=2, strides=2, padding="same"),
-            ]
-        )
-
-        self.dropout = tf.keras.layers.Dropout(drate)
-        self.inplanes = 128
-        self.AFR = self._make_afr_layer(afr_reduced_cnn_size, 1)
-
-    def _make_afr_layer(
-        self, planes: int, n_blocks: int, stride: int = 1
-    ):  # makes residual SE block
-        block = SqueezeExcitationBlock
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = tf.keras.Sequential(
-                [
-                    tf.keras.layers.Conv1D(
-                        planes * block.expansion,
-                        kernel_size=1,
-                        strides=stride,
-                        use_bias=False,
-                    ),
-                    tf.keras.layers.BatchNormalization(),
-                ]
-            )
-
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, n_blocks):
-            layers.append(block(self.inplanes, planes))
-
-        return tf.keras.Sequential(layers, name="adaptive_feature_recalibration")
-
-    def call(self, x):
-        x1 = self.features1(x)
-        x2 = self.features2(x)
-        x_concat = tf.concat([x1, x2], axis=2)
-        x_concat = self.dropout(x_concat)
-        x_concat = self.AFR(x_concat)
-        return x_concat
