@@ -3,23 +3,17 @@ import tensorflow as tf
 
 class AdaptiveAveragePooling1D(tf.keras.layers.Layer):
 
-    """TensorFlow Implementation of Pytorch's AdaptiveAvgPool1D. Inspired heavily by
-    TFA's AdaptivePooling1D
+    """TensorFlow Implementation of Pytorch's AdaptiveAvgPool1D. Inspired by
+    TFA's AdaptivePooling1D but simplified greatly for our specific model.
+    It assumes that the second dimension is the dimension to be reduced.
+    i.e. [batch_size, channels, ?] -> [batch_size, output_size, ?]
 
     Attributes:
         output_size: output size of the channel to be reduced
     """
 
-    def __init__(
-        self,
-        output_size: int,
-        trainable=True,
-        name=None,
-        dtype=None,
-        dynamic=False,
-        **kwargs
-    ):
-        super().__init__(trainable, name, dtype, dynamic, **kwargs)
+    def __init__(self, output_size: int):
+        super().__init__()
         self.output_size = output_size
 
     def call(self, inputs):
@@ -66,7 +60,6 @@ class SqueezeExcitationBlock(tf.keras.layers.Layer):
         groups=1,
         base_width=64,
         dilation=1,
-        norm_layer=None,
         *,
         reduction=16
     ):
@@ -102,7 +95,7 @@ class SqueezeExcitationBlock(tf.keras.layers.Layer):
 
 
 class MultiresolutionCNN(tf.keras.Model):
-    def __init__(self, afr_reduced_cnn_size, is_shhs: False):
+    def __init__(self, afr_reduced_cnn_size, is_shhs: bool = False):
         super(MultiresolutionCNN, self).__init__()
         drop_rate = 0.5
         kernel_size = 6 if is_shhs else 7
@@ -165,6 +158,7 @@ class MultiresolutionCNN(tf.keras.Model):
             ],
         )
         self.dropout = tf.keras.layers.Dropout(drop_rate)
+        self.inplanes = 128
         self.afr = self._make_afr_layer(afr_reduced_cnn_size, 1)
 
     def _make_afr_layer(
@@ -172,7 +166,7 @@ class MultiresolutionCNN(tf.keras.Model):
     ):  # makes residual SE block
         downsample = None
         block = SqueezeExcitationBlock
-        if stride != 1:
+        if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = tf.keras.Sequential(
                 [
                     tf.keras.layers.Conv1D(
@@ -187,6 +181,7 @@ class MultiresolutionCNN(tf.keras.Model):
 
         layers = []
         layers.append(block(planes, stride, downsample))
+        self.inplanes = planes * block.expansion
         for i in range(1, n_blocks):
             layers.append(block(planes))
 
@@ -203,42 +198,33 @@ class MultiresolutionCNN(tf.keras.Model):
 
 
 class MultiHeadedAttention(tf.keras.layers.Layer):
-    def __init__(
-        self, num_heads: int, model_dim: int, afr_reduced_cnn_size: int, dropout=0.1
-    ):
+    def __init__(self, num_heads: int, model_dim: int, afr_size: int, dropout=0.1):
         super().__init__()
         self.num_heads = num_heads
         self.model_dim = model_dim
-        self.afr_reduced_cnn_size = afr_reduced_cnn_size
+        self.afr_size = afr_size
 
         self.convs = [
             tf.keras.layers.Conv1D(
-                filters=afr_reduced_cnn_size, kernel_size=7, strides=1, padding="causal"
+                filters=afr_size, kernel_size=7, strides=1, padding="causal"
             )
             for _ in range(3)
         ]
         self.linear = tf.keras.layers.Dense(model_dim)
-
         self.multihead_attention = tf.keras.layers.MultiHeadAttention(
             num_heads=num_heads, key_dim=model_dim // num_heads, dropout=dropout
         )
-        self.reshape2 = tf.keras.layers.Reshape((num_heads, model_dim // num_heads, -1))
+        self.reshape = tf.keras.layers.Reshape((num_heads, model_dim // num_heads, -1))
 
     def call(self, query, key, value):
-        # Input shape
-        # query: [batch_size, 78, 30]
-        # key: [batch_size, 78, 30]
-        # value: [batch_size, 78, 30]
-        # may not be necessary
-        query = tf.keras.layers.Reshape((-1, self.afr_reduced_cnn_size))(query)
-
-        # query = self.convs[0](query)
+        # Input shape [batch_size, 78, 30] x 3
+        query = self.convs[0](query)
         key = self.convs[1](key)
         value = self.convs[2](value)
 
-        query = self.reshape2(query)
-        key = self.reshape2(key)
-        value = self.reshape2(value)
+        query = self.reshape(query)
+        key = self.reshape(key)
+        value = self.reshape(value)
 
         x = self.multihead_attention(query, value, key)
         x = tf.keras.layers.Reshape((-1, self.model_dim))(x)
