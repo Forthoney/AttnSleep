@@ -1,11 +1,11 @@
-gpu=$1
-data=$2
+#!/usr/bin/env bash
+data=$1
 
 start=0
-end=`cat config.json | jq '.data_loader.args.num_folds'`
+end=$(jq '.num_folds' < config.json)
 end=$((end-1))
 
-for i in $(eval echo {$start..$end})
+for i in $(eval echo "{$start..$end}")
 do
-   python train_Kfold_CV.py --fold_id=$i --device $gpu --np_data_dir $data
+   python train.py --fold_id="$i" --data_dir "$data"
 done
