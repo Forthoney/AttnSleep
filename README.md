@@ -1,4 +1,4 @@
-#Enhancing Sleep Analysis with an Attention-Based Model: Updated Fork of AttnSleep
+# Enhancing Sleep Analysis with an Attention-Based Model: Updated Fork of AttnSleep
 
 _Musa Tahir,  Afnan Nuruzzaman, Omer Chaudhry, Seong-Heon Jung_
 
