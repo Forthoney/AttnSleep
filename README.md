@@ -8,9 +8,8 @@ Sleep is a critical aspect of our health; it has long been established that inte
 ##Methodology
 Our dataset consisted of single-channel EEG data, which are typically divided into 30-second intervals that are each classified into one of six sleep stages. Figure 1 below shows the variation that exists across sleep stages in single channel EEGs. Preprocessing consisted of first removing unknown sleep stages from the dataset. Second, stages N3 and N4 were merged to simplify the classification problem and reduce model sensitivity to inter-scorer variability, as N3 and N4 are relatively difficult to distinguish in certain cases. Third, to concentrate our focus on only sleep stages, only 30 minutes of wake periods before and after sleep periods were included in our data. 
 
-[Figure 1: Wave patterns of different sleep stages from single-channel EEGs](https://imgur.com/a/2vwyQC0)
-
-[Figure 2: Overall framework of the proposed AttnSleep model for automatic sleep stage classification](https://imgur.com/a/za6v4q2)
+![Figure 1: Wave patterns of different sleep stages from single-channel EEGs](https://github.com/Forthoney/AttnSleep/assets/85617794/506026d8-1e25-4d37-8868-275d776a00cb)
+![Figure 2: Overall framework of the proposed AttnSleep model for automatic sleep stage classification](https://github.com/Forthoney/AttnSleep/assets/85617794/1f876c1e-1eb9-4574-a945-00ff8fb014fd)
 
 The main architecture that we implement in our paper, i.e. the AttnSleep, utilizes attention mechanisms to classify sleep stages by analyzing single channel EEG signals. The proposed architecture consists of three main modules: a feature extraction module that leverages multi-resolution convolutional neural network (MRCNN) and adaptive feature recalibration (AFR), a temporal context encoder (TCE), and a classification layer that employs a class-aware loss function.
 With respect to our Feature Extraction module, the MRCNN comprises two branches of convolutional layers that use distinct kernel sizes to capture features across different frequency bands in the EEG signals. This approach enables exploration of various sleep-related frequency bands and extracts both low and high-frequency features. The original model’s convolution layers use custom numerical padding values to give the output of the convolution layers a specific shape. Unfortunately, we found that this approach makes the model very inflexible with data with different dimensionalities, since the padding values have been hard-coded with a specific input shape in mind. For example, the original AttnSleep model has two distinct versions of the MRCNN layer - one for the Physionet dataset, another for the SHHS dataset - because the two datasets have different shapes. To increase the extensibility of the original model, our model only uses “valid” or “same” padding, and therefore only requires one MRCNN for both datasets.
@@ -20,7 +19,7 @@ From the outputs of the MRCNN, the AFR layer models the inter-dependencies betwe
 Next, the Temporal context encoder (TCE) utilizes multi-head attention with causal convolutions to effectively capture temporal dependencies within the extracted features. The TCE layer includes a multi-head attention (MHA) layer, a normalization layer, and two fully connected layers.  Additionally, TCE employs two identical structures stacked together to generate the final features. Here, we managed to modernize and abstract the MHA mechanism by replacing the original model’s custom MHA mechanisms with the TensorFlow built-in MultiHeadedAttention. This allows for easier tuning of the model, not to mention potential performance improvements thanks to optimizations provided by the library.
 Lastly, the classification decision is done by a fully connected layer with a softmax activation function. To handle the issue of data imbalance, we utilize a class-aware cost-sensitive loss function. We design this function to effectively address the problem without adding any extra computational complexity. Specifically, we use the standard multi-class cross-entropy function as the loss function for our model:
 
-[Figure 3: Loss Function](https://imgur.com/a/e20V53X)
+![Figure 3: Loss Function](https://github.com/Forthoney/AttnSleep/assets/85617794/652d1cad-dc17-479c-9aa7-86d106c4d673)
 
 In order to minimize the class-aware loss function and learn the model parameters, we use the tried-and-true Adam optimizer.
 Our model was reimplemented using TensorFlow from our paper’s Pytorch implementation on our local laptops with a batch size of 128. We did not deviate from the original model’s hyperparameters. Specifically, we utilized the Adam optimizer with the weight decay 1e-3, β values set to  0.9, 0.999 for β1 and β2 respectively, the ε value as 1e-08, with AMSGrad enabled. Our learning rate is 1e-3 then reduced to 1e-4 after 10 epochs. This is achieved through tf.keras.callbacks.LearningRateScheduler. For initializations, all convolution layers use a Gaussian distribution with a mean of 0 and a standard deviation of 0.02. Batch Normalization layers use a Gaussian distribution with mean of 0 and a standard deviation of 0.02.
@@ -31,19 +30,19 @@ The original paper uses 100 epochs with 20-fold cross validation. Unfortunately,
 The original paper used four metrics to compare AttnSleep’s performance against (previously) state of the art models: categorical accuracy, F1-score, Cohen Kappa, and Geometric mean. Because we were reimplementing the model, we anticipated a similar performance between the original model and our model. Thus, we used two of the four metrics - weighted categorical accuracy and F1-score - to confirm that our model was performing on-par with the original.
 Categorical accuracy is simply defined as the number of samples that the model guessed correctly for over the total number of samples. Unlike for categorical loss, we do not apply class weights for the calculation of accuracy. F1-score is defined as follows:
 
-[Figure 4: F1 Score](https://imgur.com/a/OCfKQRW)
+![Figure 4: F1 Score](https://github.com/Forthoney/AttnSleep/assets/85617794/a8f6f9a2-2c9c-4bfd-91f8-bbd0ad10f598)
 
 Recall from lecture that precision and recall are defined as
 
-[Figure 5: Precision and Recall](https://imgur.com/a/rp0uFHA)
+![Figure 5: Precision and Recall](https://github.com/Forthoney/AttnSleep/assets/85617794/d13ebb4c-6454-4dbf-ab91-96fd72c5c49b)
 
 Besides metrics for the model predictions’ quality, we also crudely measured the time for one epoch to obtain a ballpark idea for the computational cost of training. The full logs of the model can be found [here](https://drive.google.com/drive/folders/1GHBTpThwWNUaR5kMV52h9YSHsgNWFiEx?usp=share_link)
 
 ##Results
 
-[Figure 6: Model loss on training dataset (solid line) and validation dataset (dotted line) from EDF78](https://imgur.com/a/G9lGjfv)
+![Figure 6: Model loss on training dataset (solid line) and validation dataset (dotted line) from EDF78](https://github.com/Forthoney/AttnSleep/assets/85617794/494de33b-754c-4d2b-9ab7-06207959cd23)
 
-[Figure 7: Training and Validation Accuracy Metrics](https://imgur.com/a/PIJs0v7)
+![Figure 7: Training and Validation Accuracy Metrics](https://github.com/Forthoney/AttnSleep/assets/85617794/d6ec45ce-a847-4d94-b56e-163d65e4b265)
 
 Regarding accuracy, the best “fold” version of our model performs on par with the cross-validated model presented in the paper at just over 80% categorical accuracy on the validation data. The mean validation F1 score (F1 score averaged across all five classes) also barely falls short of the original model at just over 70%  vs the 75.1% of the original. Note that none of our models trained to the full 40 epoch limit. Instead, most paused training after about 20 epochs due to stagnation. We anticipate that if we were to train the full 100 epochs for all 20 folds, we may be able to achieve a virtually identical value. Regardless, the model can be seen more or less converging around epoch 20.
 
